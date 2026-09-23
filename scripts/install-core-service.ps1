@@ -10,6 +10,7 @@ $Project = Join-Path $RepoRoot 'src\ErGe.Core.Service\ErGe.Core.Service.csproj'
 $InstallRoot = Join-Path $env:ProgramFiles 'ErGe\Core'
 $DataRoot = Join-Path $env:ProgramData 'ErGe'
 $StatusPath = Join-Path $DataRoot 'runtime-status.json'
+$SessionOwnerPath = Join-Path $DataRoot 'session-owner.json'
 $Stage = Join-Path $env:TEMP ('erge-core-publish-' + [guid]::NewGuid().ToString('N'))
 
 function Assert-Administrator {
@@ -46,6 +47,17 @@ try {
 
     New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
     Copy-Item -Path (Join-Path $Stage '*') -Destination $InstallRoot -Recurse -Force
+
+    $ownerIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    if (-not $ownerIdentity.User) {
+        throw 'Unable to determine the local owner Windows SID.'
+    }
+
+    [ordered]@{
+        schemaVersion = 1
+        userSid = $ownerIdentity.User.Value
+        userName = $ownerIdentity.Name
+    } | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath $SessionOwnerPath
 
     icacls.exe $DataRoot /inheritance:e /grant '*S-1-5-19:(OI)(CI)M' /grant '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
     if ($LASTEXITCODE -ne 0) {

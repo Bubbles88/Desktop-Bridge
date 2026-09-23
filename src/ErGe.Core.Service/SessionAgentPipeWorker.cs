@@ -6,6 +6,7 @@ using System.Security.Principal;
 using System.Text;
 using ErGe.Core.Ipc;
 using ErGe.Core.Runtime;
+using ErGe.Core.Security;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32.SafeHandles;
@@ -21,13 +22,16 @@ public sealed class SessionAgentPipeWorker : BackgroundService
     private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(2);
 
     private readonly SessionAgentStatusStore _statusStore;
+    private readonly SessionOwnerStore _ownerStore;
     private readonly ILogger<SessionAgentPipeWorker> _logger;
 
     public SessionAgentPipeWorker(
         SessionAgentStatusStore statusStore,
+        SessionOwnerStore ownerStore,
         ILogger<SessionAgentPipeWorker> logger)
     {
         _statusStore = statusStore;
+        _ownerStore = ownerStore;
         _logger = logger;
     }
 
@@ -93,6 +97,17 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             throw new SecurityException("Windows did not provide an authenticated pipe client identity.");
         }
 
+        var authenticatedSid = ((NTAccount)new NTAccount(authenticatedUser))
+            .Translate(typeof(SecurityIdentifier)) as SecurityIdentifier
+            ?? throw new SecurityException("Unable to resolve authenticated pipe client SID.");
+
+        var owner = _ownerStore.LoadRequired();
+        if (!string.Equals(authenticatedSid.Value, owner.UserSid, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SecurityException(
+                $"Session Agent SID {authenticatedSid.Value} is not the configured device owner SID.");
+        }
+
         using var reader = new StreamReader(
             pipe,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
@@ -135,6 +150,11 @@ public sealed class SessionAgentPipeWorker : BackgroundService
         if (hello.SessionId != actualSessionId)
         {
             throw new SecurityException("Session Agent Windows session identity mismatch.");
+        }
+
+        if (!string.Equals(hello.UserName, authenticatedUser, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SecurityException("Session Agent user identity mismatch.");
         }
 
         var handshake = new SessionHandshake(

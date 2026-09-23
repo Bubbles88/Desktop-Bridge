@@ -1,5 +1,6 @@
 using ErGe.Core.Policy;
 using ErGe.Core.Runtime;
+using ErGe.Core.Security;
 using ErGe.Core.Service;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -36,6 +37,7 @@ builder.Services.AddSingleton(new FilePolicyStore(CorePaths.PolicyPath));
 builder.Services.AddSingleton<PolicyEngine>();
 builder.Services.AddSingleton(new CoreStatusStore(CorePaths.StatusPath));
 builder.Services.AddSingleton(new SessionAgentStatusStore(CorePaths.SessionStatusPath));
+builder.Services.AddSingleton(new SessionOwnerStore(CorePaths.SessionOwnerPath));
 builder.Services.AddHostedService<CoreWorker>();
 builder.Services.AddHostedService<SessionAgentPipeWorker>();
 

@@ -31,13 +31,15 @@ Windows interactive desktop
 ## Authentication rules
 
 1. The named pipe denies the Windows Network identity.
-2. Local built-in users may open the pipe.
-3. Core obtains the real client PID from Windows.
-4. Core resolves the real Windows session for that PID.
-5. Core requires that session to equal the active console session.
-6. Core obtains the authenticated pipe user from Windows.
-7. The Session Agent hello PID and session must match the operating system values.
-8. Protocol version must match.
+2. Local built-in users may open the pipe only as a transport-level prerequisite.
+3. Core resolves the authenticated Windows account to its real SID.
+4. Core requires that SID to equal the locally configured device-owner SID in `%ProgramData%\ErGe\session-owner.json`.
+5. Core obtains the real client PID from Windows.
+6. Core resolves the real Windows session for that PID.
+7. Core requires that session to equal the active console session.
+8. Core obtains the authenticated pipe user from Windows.
+9. The Session Agent hello PID, session, and user name must match the operating system values.
+10. Protocol version must match.
 
 No custom shared secret is introduced in Phase 3.
 
