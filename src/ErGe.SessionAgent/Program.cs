@@ -1,7 +1,10 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
+using System.Text.Json;
 using ErGe.Core.Ipc;
 using System.Windows.Forms;
 
@@ -9,16 +12,39 @@ namespace ErGe.SessionAgent;
 
 internal static class Program
 {
+    [Flags]
+    private enum ExecutionState : uint
+    {
+        SystemRequired = 0x00000001,
+        Continuous = 0x80000000
+    }
+
     [STAThread]
     private static async Task<int> Main(string[] args)
     {
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
+        {
+            TrySetKeepAwake(false);
+        };
 
         if (args.Contains("--probe-screen", StringComparer.OrdinalIgnoreCase))
         {
             var screenInfo = GetScreenInfo();
             Console.WriteLine(SessionProtocol.Serialize(screenInfo));
             Console.WriteLine("ERGE_SESSION_SCREEN_PROBE_OK");
+            return 0;
+        }
+
+        if (args.Contains("--probe-availability", StringComparer.OrdinalIgnoreCase))
+        {
+            SetKeepAwake(true);
+            Console.WriteLine(SessionProtocol.Serialize(
+                new AvailabilityInfoSnapshot(KeepAwake: true)));
+
+            SetKeepAwake(false);
+            Console.WriteLine("ERGE_SESSION_AVAILABILITY_PROBE_OK");
             return 0;
         }
 
@@ -31,42 +57,49 @@ internal static class Program
             shutdown.Cancel();
         };
 
-        if (oneRequest)
+        try
         {
-            return await RunConnectionAsync(
-                oneRequest: true,
-                shutdown.Token);
-        }
-
-        while (!shutdown.IsCancellationRequested)
-        {
-            try
+            if (oneRequest)
             {
-                await RunConnectionAsync(
-                    oneRequest: false,
+                return await RunConnectionAsync(
+                    oneRequest: true,
                     shutdown.Token);
             }
-            catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+
+            while (!shutdown.IsCancellationRequested)
             {
-                break;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine(
-                    $"Session Agent disconnected: {ex.GetType().Name}: {ex.Message}");
+                try
+                {
+                    await RunConnectionAsync(
+                        oneRequest: false,
+                        shutdown.Token);
+                }
+                catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine(
+                        $"Session Agent disconnected: {ex.GetType().Name}: {ex.Message}");
+                }
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(2), shutdown.Token);
+                }
+                catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+                {
+                    break;
+                }
             }
 
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), shutdown.Token);
-            }
-            catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
-            {
-                break;
-            }
+            return 0;
         }
-
-        return 0;
+        finally
+        {
+            TrySetKeepAwake(false);
+        }
     }
 
     private static async Task<int> RunConnectionAsync(
@@ -131,38 +164,7 @@ internal static class Program
 
             var request = SessionProtocol.Deserialize<SessionRequest>(requestLine);
 
-            SessionResponse response;
-
-            if (string.Equals(request.Action, "screen.info", StringComparison.Ordinal))
-            {
-                try
-                {
-                    response = new SessionResponse(
-                        Type: "response",
-                        RequestId: request.RequestId,
-                        Success: true,
-                        ScreenInfo: GetScreenInfo(),
-                        Error: null);
-                }
-                catch (Exception ex)
-                {
-                    response = new SessionResponse(
-                        Type: "response",
-                        RequestId: request.RequestId,
-                        Success: false,
-                        ScreenInfo: null,
-                        Error: $"{ex.GetType().Name}: {ex.Message}");
-                }
-            }
-            else
-            {
-                response = new SessionResponse(
-                    Type: "response",
-                    RequestId: request.RequestId,
-                    Success: false,
-                    ScreenInfo: null,
-                    Error: $"Unsupported action: {request.Action}");
-            }
+            var response = HandleRequest(request);
 
             await writer.WriteLineAsync(SessionProtocol.Serialize(response));
 
@@ -173,6 +175,77 @@ internal static class Program
         }
 
         return 0;
+    }
+
+    private static SessionResponse HandleRequest(SessionRequest request)
+    {
+        if (string.Equals(request.Action, "screen.info", StringComparison.Ordinal))
+        {
+            try
+            {
+                return new SessionResponse(
+                    Type: "response",
+                    RequestId: request.RequestId,
+                    Success: true,
+                    ScreenInfo: GetScreenInfo(),
+                    Error: null);
+            }
+            catch (Exception ex)
+            {
+                return new SessionResponse(
+                    Type: "response",
+                    RequestId: request.RequestId,
+                    Success: false,
+                    ScreenInfo: null,
+                    Error: $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        if (string.Equals(request.Action, "availability.set", StringComparison.Ordinal))
+        {
+            try
+            {
+                var keepAwake = ReadKeepAwakeArgument(request.Arguments);
+                SetKeepAwake(keepAwake);
+
+                return new SessionResponse(
+                    Type: "response",
+                    RequestId: request.RequestId,
+                    Success: true,
+                    ScreenInfo: null,
+                    Error: null,
+                    Availability: new AvailabilityInfoSnapshot(keepAwake));
+            }
+            catch (Exception ex)
+            {
+                return new SessionResponse(
+                    Type: "response",
+                    RequestId: request.RequestId,
+                    Success: false,
+                    ScreenInfo: null,
+                    Error: $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        return new SessionResponse(
+            Type: "response",
+            RequestId: request.RequestId,
+            Success: false,
+            ScreenInfo: null,
+            Error: $"Unsupported action: {request.Action}");
+    }
+
+    private static bool ReadKeepAwakeArgument(JsonElement arguments)
+    {
+        if (arguments.ValueKind != JsonValueKind.Object
+            || !arguments.TryGetProperty("keepAwake", out var property)
+            || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            throw new InvalidDataException(
+                "availability.set requires boolean keepAwake.");
+        }
+
+        return property.GetBoolean();
     }
 
     private static ScreenInfoSnapshot GetScreenInfo()
@@ -190,6 +263,37 @@ internal static class Program
         return new ScreenInfoSnapshot(monitors);
     }
 
+    private static void SetKeepAwake(bool keepAwake)
+    {
+        var state = ExecutionState.Continuous;
+
+        if (keepAwake)
+        {
+            state |= ExecutionState.SystemRequired;
+        }
+
+        var previous = SetThreadExecutionState(state);
+        if (previous == 0)
+        {
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                "SetThreadExecutionState failed.");
+        }
+    }
+
+    private static void TrySetKeepAwake(bool keepAwake)
+    {
+        try
+        {
+            SetKeepAwake(keepAwake);
+        }
+        catch
+        {
+            // Process shutdown cleanup is best effort. Windows clears the
+            // execution-state request automatically when the process exits.
+        }
+    }
+
     private static async Task<string> ReadLineWithTimeoutAsync(
         StreamReader reader,
         TimeSpan timeout,
@@ -205,7 +309,12 @@ internal static class Program
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException($"Named pipe response exceeded {timeout.TotalSeconds:g} seconds.");
+            throw new TimeoutException(
+                $"Named pipe response exceeded {timeout.TotalSeconds:g} seconds.");
         }
     }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern ExecutionState SetThreadExecutionState(
+        ExecutionState esFlags);
 }

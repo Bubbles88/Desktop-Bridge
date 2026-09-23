@@ -36,14 +36,16 @@ public sealed record SessionHandshake(
 public sealed record SessionRequest(
     string Type,
     string RequestId,
-    string Action);
+    string Action,
+    JsonElement Arguments = default);
 
 public sealed record SessionResponse(
     string Type,
     string RequestId,
     bool Success,
     ScreenInfoSnapshot? ScreenInfo,
-    string? Error);
+    string? Error,
+    AvailabilityInfoSnapshot? Availability = null);
 
 public sealed record ScreenInfoSnapshot(
     IReadOnlyList<ScreenMonitorSnapshot> Monitors);
@@ -55,3 +57,6 @@ public sealed record ScreenMonitorSnapshot(
     int Width,
     int Height,
     bool Primary);
+
+public sealed record AvailabilityInfoSnapshot(
+    bool KeepAwake);
