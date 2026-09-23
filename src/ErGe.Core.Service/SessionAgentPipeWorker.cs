@@ -152,9 +152,17 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             throw new SecurityException("Session Agent Windows session identity mismatch.");
         }
 
+        if (string.IsNullOrWhiteSpace(hello.UserName))
+        {
+            throw new SecurityException("Session Agent user name is missing.");
+        }
+
         if (!string.Equals(hello.UserName, authenticatedUser, StringComparison.OrdinalIgnoreCase))
         {
-            throw new SecurityException("Session Agent user identity mismatch.");
+            _logger.LogDebug(
+                "Session Agent reported user {ReportedUser}; Windows authenticated pipe user is {AuthenticatedUser}. SID authentication remains authoritative.",
+                hello.UserName,
+                authenticatedUser);
         }
 
         var handshake = new SessionHandshake(
