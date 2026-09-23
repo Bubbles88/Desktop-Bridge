@@ -35,7 +35,9 @@ builder.Services.AddWindowsService(options =>
 builder.Services.AddSingleton(new FilePolicyStore(CorePaths.PolicyPath));
 builder.Services.AddSingleton<PolicyEngine>();
 builder.Services.AddSingleton(new CoreStatusStore(CorePaths.StatusPath));
+builder.Services.AddSingleton(new SessionAgentStatusStore(CorePaths.SessionStatusPath));
 builder.Services.AddHostedService<CoreWorker>();
+builder.Services.AddHostedService<SessionAgentPipeWorker>();
 
 var host = builder.Build();
 await host.RunAsync();

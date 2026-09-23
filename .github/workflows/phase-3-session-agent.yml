@@ -1,0 +1,37 @@
+name: phase-3-session-agent
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build Core Service
+        run: dotnet build src/ErGe.Core.Service/ErGe.Core.Service.csproj --configuration Release
+
+      - name: Build Session Agent
+        run: dotnet build src/ErGe.SessionAgent/ErGe.SessionAgent.csproj --configuration Release
+
+      - name: Run existing Phase 1 policy self-test
+        run: dotnet run --project src/ErGe.Policy.SelfTest/ErGe.Policy.SelfTest.csproj --configuration Release
+
+      - name: Run existing Phase 2 Core self-test
+        run: dotnet run --project src/ErGe.Core.Service.SelfTest/ErGe.Core.Service.SelfTest.csproj --configuration Release
+
+      - name: Probe interactive screen
+        run: dotnet run --project src/ErGe.SessionAgent/ErGe.SessionAgent.csproj --configuration Release -- --probe-screen

@@ -10,6 +10,9 @@ public static class CorePaths
     public static string StatusPath =>
         GetEnvironmentPath("ERGE_STATUS_PATH", CoreStatusStore.GetDefaultPath());
 
+    public static string SessionStatusPath =>
+        GetEnvironmentPath("ERGE_SESSION_STATUS_PATH", SessionAgentStatusStore.GetDefaultPath());
+
     private static string GetEnvironmentPath(string variableName, string fallback)
     {
         var configured = Environment.GetEnvironmentVariable(variableName);
