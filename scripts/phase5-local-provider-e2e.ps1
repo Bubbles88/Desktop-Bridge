@@ -41,8 +41,8 @@ try {
     New-Item -ItemType Directory -Force -Path $Root | Out-Null
 
     [ordered]@{
-        schemaVersion = 1
-        persistentMode = 'AlwaysOn'
+        SchemaVersion = 1
+        PersistentMode = 'AlwaysOn'
     } | ConvertTo-Json | Set-Content -Encoding UTF8 -LiteralPath $PolicyPath
 
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
