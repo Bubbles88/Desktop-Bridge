@@ -12,4 +12,5 @@ public sealed record SessionAgentStatusSnapshot(
     DateTimeOffset? ConnectedAtUtc,
     DateTimeOffset? LastSeenUtc,
     ScreenInfoSnapshot? ScreenInfo,
-    string? LastError);
+    string? LastError,
+    bool? KeepAwakeApplied = null);

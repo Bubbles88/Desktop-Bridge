@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using ErGe.Core.Actions;
 using ErGe.Core.Ipc;
+using ErGe.Core.Policy;
 using ErGe.Core.Runtime;
 using ErGe.Core.Security;
 using Microsoft.Extensions.Hosting;
@@ -20,17 +21,20 @@ public sealed class SessionAgentPipeWorker : BackgroundService
 
     private readonly SessionAgentStatusStore _statusStore;
     private readonly SessionOwnerStore _ownerStore;
+    private readonly PolicyEngine _policyEngine;
     private readonly SessionAgentActionQueue _actionQueue;
     private readonly ILogger<SessionAgentPipeWorker> _logger;
 
     public SessionAgentPipeWorker(
         SessionAgentStatusStore statusStore,
         SessionOwnerStore ownerStore,
+        PolicyEngine policyEngine,
         SessionAgentActionQueue actionQueue,
         ILogger<SessionAgentPipeWorker> logger)
     {
         _statusStore = statusStore;
         _ownerStore = ownerStore;
+        _policyEngine = policyEngine;
         _actionQueue = actionQueue;
         _logger = logger;
     }
@@ -155,6 +159,7 @@ public sealed class SessionAgentPipeWorker : BackgroundService
 
         var connectedAtUtc = DateTimeOffset.UtcNow;
         ScreenInfoSnapshot? lastScreenInfo = null;
+        bool? lastKeepAwake = null;
 
         _actionQueue.SetConnected(true);
 
@@ -164,6 +169,22 @@ public sealed class SessionAgentPipeWorker : BackgroundService
 
             while (!stoppingToken.IsCancellationRequested && pipe.IsConnected)
             {
+                var desiredKeepAwake = _policyEngine.Snapshot.RemoteAiAllowed;
+                if (lastKeepAwake != desiredKeepAwake)
+                {
+                    lastKeepAwake = await ApplyAvailabilityRequestAsync(
+                        desiredKeepAwake,
+                        reader,
+                        writer,
+                        stoppingToken);
+
+                    WriteConnectedStatus(
+                        authenticated,
+                        connectedAtUtc,
+                        lastScreenInfo,
+                        lastKeepAwake);
+                }
+
                 if (_actionQueue.TryRead(out var pending) && pending is not null)
                 {
                     lastScreenInfo = await ExecutePendingActionAsync(
@@ -176,7 +197,8 @@ public sealed class SessionAgentPipeWorker : BackgroundService
                     WriteConnectedStatus(
                         authenticated,
                         connectedAtUtc,
-                        lastScreenInfo);
+                        lastScreenInfo,
+                        lastKeepAwake);
 
                     continue;
                 }
@@ -193,7 +215,8 @@ public sealed class SessionAgentPipeWorker : BackgroundService
                     WriteConnectedStatus(
                         authenticated,
                         connectedAtUtc,
-                        lastScreenInfo);
+                        lastScreenInfo,
+                        lastKeepAwake);
 
                     nextProbeAt = DateTimeOffset.UtcNow.Add(ProbeInterval);
                     continue;
@@ -226,6 +249,51 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             LastSeenUtc: DateTimeOffset.UtcNow,
             ScreenInfo: lastScreenInfo,
             LastError: "Session Agent disconnected."));
+    }
+
+    private static async Task<bool> ApplyAvailabilityRequestAsync(
+        bool keepAwake,
+        StreamReader reader,
+        StreamWriter writer,
+        CancellationToken cancellationToken)
+    {
+        var request = new SessionRequest(
+            Type: "request",
+            RequestId: Guid.NewGuid().ToString("N"),
+            Action: "availability.set",
+            Arguments: JsonSerializer.SerializeToElement(
+                new { keepAwake },
+                SessionProtocol.JsonOptions));
+
+        await writer.WriteLineAsync(SessionProtocol.Serialize(request));
+
+        var responseLine = await ReadLineWithTimeoutAsync(
+            reader,
+            RequestTimeout,
+            cancellationToken);
+
+        var response = SessionProtocol.Deserialize<SessionResponse>(responseLine);
+
+        if (!string.Equals(response.Type, "response", StringComparison.Ordinal)
+            || !string.Equals(response.RequestId, request.RequestId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Session Agent availability response correlation failed.");
+        }
+
+        if (!response.Success || response.Availability is null)
+        {
+            throw new InvalidOperationException(
+                response.Error ?? "Session Agent availability.set request failed.");
+        }
+
+        if (response.Availability.KeepAwake != keepAwake)
+        {
+            throw new InvalidDataException(
+                "Session Agent availability state did not match the requested value.");
+        }
+
+        return response.Availability.KeepAwake;
     }
 
     private async Task<ScreenInfoSnapshot?> ExecutePendingActionAsync(
@@ -307,7 +375,8 @@ public sealed class SessionAgentPipeWorker : BackgroundService
     private void WriteConnectedStatus(
         AuthenticatedPipeClient authenticated,
         DateTimeOffset connectedAtUtc,
-        ScreenInfoSnapshot? screenInfo)
+        ScreenInfoSnapshot? screenInfo,
+        bool? keepAwakeApplied)
     {
         _statusStore.Save(new SessionAgentStatusSnapshot(
             StatusSchemaVersion,
@@ -319,7 +388,8 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             ConnectedAtUtc: connectedAtUtc,
             LastSeenUtc: DateTimeOffset.UtcNow,
             ScreenInfo: screenInfo,
-            LastError: null));
+            LastError: null,
+            KeepAwakeApplied: keepAwakeApplied));
     }
 
     private static async Task<string> ReadLineWithTimeoutAsync(
