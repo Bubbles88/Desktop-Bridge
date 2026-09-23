@@ -77,7 +77,7 @@ public sealed class SessionAgentPipeWorker : BackgroundService
         CancellationToken stoppingToken)
     {
         var actualProcessId = GetClientProcessId(pipe.SafePipeHandle);
-        var actualSessionId = GetProcessSessionId(actualProcessId);
+        var actualSessionId = GetClientSessionId(pipe.SafePipeHandle);
         var activeSessionId = WTSGetActiveConsoleSessionId();
 
         if (activeSessionId == InvalidSessionId)
@@ -307,12 +307,12 @@ public sealed class SessionAgentPipeWorker : BackgroundService
         return checked((int)processId);
     }
 
-    private static int GetProcessSessionId(int processId)
+    private static int GetClientSessionId(SafePipeHandle handle)
     {
-        if (!ProcessIdToSessionId(checked((uint)processId), out var sessionId))
+        if (!GetNamedPipeClientSessionId(handle, out var sessionId))
         {
             throw new InvalidOperationException(
-                $"ProcessIdToSessionId failed with Win32 error {Marshal.GetLastWin32Error()}.");
+                $"GetNamedPipeClientSessionId failed with Win32 error {Marshal.GetLastWin32Error()}.");
         }
 
         return checked((int)sessionId);
@@ -341,9 +341,9 @@ public sealed class SessionAgentPipeWorker : BackgroundService
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool ProcessIdToSessionId(
-        uint dwProcessId,
-        out uint pSessionId);
+    private static extern bool GetNamedPipeClientSessionId(
+        SafePipeHandle Pipe,
+        out uint ClientSessionId);
 
     [DllImport("kernel32.dll")]
     private static extern uint WTSGetActiveConsoleSessionId();
