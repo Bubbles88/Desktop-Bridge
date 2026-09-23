@@ -58,3 +58,13 @@ provider request
 Phase 4 still registers only `screen.info`. This proves the routing and governance boundary before expanding the capability surface.
 
 The Capability Broker is provider-neutral. ChatGPT, Claude, a local LLM, or the legacy bridge may later become adapters, but none of them may bypass Core policy or call the Session Agent directly.
+
+## Phase 5 local provider ingress
+
+The first provider transport is deliberately local only.
+
+A valid local provider is authenticated by Windows PID, Windows session, Windows account, and the configured device owner SID.
+
+The provider request does not contain a trust origin. Core assigns ActionOrigin.LocalProvider after transport authentication.
+
+The provider pipe is an adapter boundary only. Capability authority remains in the Capability Broker and interactive execution remains in the Session Agent.

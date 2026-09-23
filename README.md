@@ -4,7 +4,7 @@ Native Windows remote AI runtime with owner-controlled Always On / Always Off ac
 
 ## Current phase
 
-Phase 4 source development: provider-neutral Action Protocol and Capability Broker.
+Phase 5 source development: owner-authenticated local provider ingress on top of the Phase 4 Action Protocol and Capability Broker.
 
 Phase 1 and Phase 2 are complete. Phase 3 source and CI are complete, while its final Jonathan G14 target-machine verification record remains open.
 
@@ -50,3 +50,11 @@ ERGE_ACTION_BROKER_SELFTEST_OK
 ```
 
 Phase 4 intentionally adds no Relay and no external ChatGPT provider ingress yet.
+
+## Phase 5 provider probe
+
+The first provider client is local-only and owner-authenticated:
+
+dotnet run --project src/ErGe.LocalProvider.Cli/ErGe.LocalProvider.Cli.csproj --configuration Release -- --probe-screen
+
+A successful end-to-end provider path prints ERGE_LOCAL_PROVIDER_SCREEN_INFO_OK.
