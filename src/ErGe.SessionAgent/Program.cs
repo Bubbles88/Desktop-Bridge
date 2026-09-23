@@ -12,6 +12,8 @@ internal static class Program
     [STAThread]
     private static async Task<int> Main(string[] args)
     {
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+
         if (args.Contains("--probe-screen", StringComparer.OrdinalIgnoreCase))
         {
             var screenInfo = GetScreenInfo();
