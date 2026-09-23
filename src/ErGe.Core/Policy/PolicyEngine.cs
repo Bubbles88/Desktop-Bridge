@@ -3,6 +3,8 @@ namespace ErGe.Core.Policy;
 public sealed class PolicyEngine
 {
     private readonly FilePolicyStore _store;
+    private readonly object _sync = new();
+
     private PersistentMode _persistentMode;
     private SessionOverride _sessionOverride;
     private bool _configurationHealthy;
@@ -17,25 +19,44 @@ public sealed class PolicyEngine
         _sessionOverride = SessionOverride.None;
     }
 
-    public PolicySnapshot Snapshot => BuildSnapshot();
-
-    public PolicySnapshot SetPersistentMode(PersistentMode mode, ControlSource source)
+    public PolicySnapshot Snapshot
     {
-        RequireLocalOwner(source);
-
-        _store.Save(mode);
-        _persistentMode = mode;
-        _configurationHealthy = true;
-
-        return BuildSnapshot();
+        get
+        {
+            lock (_sync)
+            {
+                return BuildSnapshot();
+            }
+        }
     }
 
-    public PolicySnapshot SetSessionOverride(SessionOverride sessionOverride, ControlSource source)
+    public PolicySnapshot SetPersistentMode(
+        PersistentMode mode,
+        ControlSource source)
     {
         RequireLocalOwner(source);
 
-        _sessionOverride = sessionOverride;
-        return BuildSnapshot();
+        lock (_sync)
+        {
+            _store.Save(mode);
+            _persistentMode = mode;
+            _configurationHealthy = true;
+
+            return BuildSnapshot();
+        }
+    }
+
+    public PolicySnapshot SetSessionOverride(
+        SessionOverride sessionOverride,
+        ControlSource source)
+    {
+        RequireLocalOwner(source);
+
+        lock (_sync)
+        {
+            _sessionOverride = sessionOverride;
+            return BuildSnapshot();
+        }
     }
 
     public PolicySnapshot ClearSessionOverride(ControlSource source)
