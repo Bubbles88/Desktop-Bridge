@@ -1,0 +1,50 @@
+name: phase-7-availability
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-e2e:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build Core Service
+        run: dotnet build src/ErGe.Core.Service/ErGe.Core.Service.csproj --configuration Release
+
+      - name: Build Session Agent
+        run: dotnet build src/ErGe.SessionAgent/ErGe.SessionAgent.csproj --configuration Release
+
+      - name: Build Owner Control CLI
+        run: dotnet build src/ErGe.OwnerControl.Cli/ErGe.OwnerControl.Cli.csproj --configuration Release
+
+      - name: Probe Session Agent availability primitive
+        run: dotnet run --project src/ErGe.SessionAgent/ErGe.SessionAgent.csproj --configuration Release -- --probe-availability
+
+      - name: Install Session Agent autostart
+        shell: pwsh
+        run: ./scripts/install-session-agent-autostart.ps1
+
+      - name: Verify Session Agent autostart
+        shell: pwsh
+        run: ./scripts/verify-session-agent-autostart.ps1
+
+      - name: Uninstall Session Agent autostart test install
+        shell: pwsh
+        run: ./scripts/uninstall-session-agent-autostart.ps1
+
+      - name: Run policy-to-availability end-to-end path
+        shell: pwsh
+        run: ./scripts/phase7-availability-e2e.ps1
