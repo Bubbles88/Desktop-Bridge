@@ -1,0 +1,43 @@
+name: phase-4-action-broker
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-selftest:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build Core
+        run: dotnet build src/ErGe.Core/ErGe.Core.csproj --configuration Release
+
+      - name: Build Core Service
+        run: dotnet build src/ErGe.Core.Service/ErGe.Core.Service.csproj --configuration Release
+
+      - name: Build Session Agent
+        run: dotnet build src/ErGe.SessionAgent/ErGe.SessionAgent.csproj --configuration Release
+
+      - name: Run Phase 1 policy self-test
+        run: dotnet run --project src/ErGe.Policy.SelfTest/ErGe.Policy.SelfTest.csproj --configuration Release
+
+      - name: Run Phase 2 Core self-test
+        run: dotnet run --project src/ErGe.Core.Service.SelfTest/ErGe.Core.Service.SelfTest.csproj --configuration Release
+
+      - name: Run Phase 4 Action Broker self-test
+        run: dotnet run --project src/ErGe.ActionBroker.SelfTest/ErGe.ActionBroker.SelfTest.csproj --configuration Release
+
+      - name: Probe Phase 3 screen capability
+        run: dotnet run --project src/ErGe.SessionAgent/ErGe.SessionAgent.csproj --configuration Release -- --probe-screen

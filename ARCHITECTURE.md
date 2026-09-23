@@ -37,3 +37,24 @@ The existing Yusen PC Bridge remains the working production and migration path.
 ErGe Desktop is built independently so the replacement architecture can be tested without destabilizing the bridge.
 
 The current bridge will later become a legacy provider adapter into ErGe Core only after the new local architecture passes its acceptance gates.
+
+
+## Phase 4 Action Protocol boundary
+
+The provider is not allowed to call Windows capabilities directly.
+
+The new invariant is:
+
+```text
+provider request
+    -> Action Protocol validation
+    -> local owner policy
+    -> exact registered Capability Handler
+    -> Core interactive executor
+    -> authenticated Session Agent IPC
+    -> Windows
+```
+
+Phase 4 still registers only `screen.info`. This proves the routing and governance boundary before expanding the capability surface.
+
+The Capability Broker is provider-neutral. ChatGPT, Claude, a local LLM, or the legacy bridge may later become adapters, but none of them may bypass Core policy or call the Session Agent directly.
