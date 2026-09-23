@@ -37,7 +37,7 @@ public sealed record SessionRequest(
     string Type,
     string RequestId,
     string Action,
-    JsonElement Arguments = default);
+    JsonElement? Arguments = null);
 
 public sealed record SessionResponse(
     string Type,

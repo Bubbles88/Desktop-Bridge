@@ -235,10 +235,11 @@ internal static class Program
             Error: $"Unsupported action: {request.Action}");
     }
 
-    private static bool ReadKeepAwakeArgument(JsonElement arguments)
+    private static bool ReadKeepAwakeArgument(JsonElement? arguments)
     {
-        if (arguments.ValueKind != JsonValueKind.Object
-            || !arguments.TryGetProperty("keepAwake", out var property)
+        if (arguments is null
+            || arguments.Value.ValueKind != JsonValueKind.Object
+            || !arguments.Value.TryGetProperty("keepAwake", out var property)
             || property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
         {
             throw new InvalidDataException(
