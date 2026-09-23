@@ -1,3 +1,4 @@
+using ErGe.Core.Actions;
 using ErGe.Core.Policy;
 using ErGe.Core.Runtime;
 using ErGe.Core.Security;
@@ -38,6 +39,13 @@ builder.Services.AddSingleton<PolicyEngine>();
 builder.Services.AddSingleton(new CoreStatusStore(CorePaths.StatusPath));
 builder.Services.AddSingleton(new SessionAgentStatusStore(CorePaths.SessionStatusPath));
 builder.Services.AddSingleton(new SessionOwnerStore(CorePaths.SessionOwnerPath));
+
+builder.Services.AddSingleton<SessionAgentActionQueue>();
+builder.Services.AddSingleton<IInteractiveCapabilityExecutor>(
+    services => services.GetRequiredService<SessionAgentActionQueue>());
+builder.Services.AddSingleton<ICapabilityHandler, ScreenInfoCapabilityHandler>();
+builder.Services.AddSingleton<CapabilityBroker>();
+
 builder.Services.AddHostedService<CoreWorker>();
 builder.Services.AddHostedService<SessionAgentPipeWorker>();
 

@@ -4,6 +4,8 @@ using System.Security;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
+using System.Text.Json;
+using ErGe.Core.Actions;
 using ErGe.Core.Ipc;
 using ErGe.Core.Runtime;
 using ErGe.Core.Security;
@@ -23,20 +25,24 @@ public sealed class SessionAgentPipeWorker : BackgroundService
 
     private readonly SessionAgentStatusStore _statusStore;
     private readonly SessionOwnerStore _ownerStore;
+    private readonly SessionAgentActionQueue _actionQueue;
     private readonly ILogger<SessionAgentPipeWorker> _logger;
 
     public SessionAgentPipeWorker(
         SessionAgentStatusStore statusStore,
         SessionOwnerStore ownerStore,
+        SessionAgentActionQueue actionQueue,
         ILogger<SessionAgentPipeWorker> logger)
     {
         _statusStore = statusStore;
         _ownerStore = ownerStore;
+        _actionQueue = actionQueue;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _actionQueue.SetConnected(false);
         WriteDisconnectedStatus(null);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -54,6 +60,8 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             }
             catch (Exception ex)
             {
+                _actionQueue.SetConnected(false);
+
                 var message = $"{ex.GetType().Name}: {ex.Message}";
                 _logger.LogWarning(ex, "Session Agent connection ended.");
                 WriteDisconnectedStatus(message.Length <= 1000 ? message : message[..1000]);
@@ -69,6 +77,7 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             }
         }
 
+        _actionQueue.SetConnected(false);
         WriteDisconnectedStatus("Core stopping.");
     }
 
@@ -176,54 +185,67 @@ public sealed class SessionAgentPipeWorker : BackgroundService
         var connectedAtUtc = DateTimeOffset.UtcNow;
         ScreenInfoSnapshot? lastScreenInfo = null;
 
-        while (!stoppingToken.IsCancellationRequested && pipe.IsConnected)
+        _actionQueue.SetConnected(true);
+
+        try
         {
-            var request = new SessionRequest(
-                Type: "request",
-                RequestId: Guid.NewGuid().ToString("N"),
-                Action: "screen.info");
+            var nextProbeAt = DateTimeOffset.UtcNow;
 
-            await writer.WriteLineAsync(SessionProtocol.Serialize(request));
-
-            var responseLine = await ReadLineWithTimeoutAsync(
-                reader,
-                RequestTimeout,
-                stoppingToken);
-
-            var response = SessionProtocol.Deserialize<SessionResponse>(responseLine);
-
-            if (!string.Equals(response.Type, "response", StringComparison.Ordinal)
-                || !string.Equals(response.RequestId, request.RequestId, StringComparison.Ordinal))
+            while (!stoppingToken.IsCancellationRequested && pipe.IsConnected)
             {
-                throw new InvalidDataException("Session Agent response correlation failed.");
+                if (_actionQueue.TryRead(out var pending) && pending is not null)
+                {
+                    lastScreenInfo = await ExecutePendingActionAsync(
+                        pending,
+                        reader,
+                        writer,
+                        lastScreenInfo,
+                        stoppingToken);
+
+                    WriteConnectedStatus(
+                        actualProcessId,
+                        actualSessionId,
+                        authenticatedUser,
+                        connectedAtUtc,
+                        lastScreenInfo);
+
+                    continue;
+                }
+
+                var now = DateTimeOffset.UtcNow;
+                if (now >= nextProbeAt)
+                {
+                    lastScreenInfo = await ExecuteScreenInfoRequestAsync(
+                        requestId: Guid.NewGuid().ToString("N"),
+                        reader,
+                        writer,
+                        stoppingToken);
+
+                    WriteConnectedStatus(
+                        actualProcessId,
+                        actualSessionId,
+                        authenticatedUser,
+                        connectedAtUtc,
+                        lastScreenInfo);
+
+                    nextProbeAt = DateTimeOffset.UtcNow.Add(ProbeInterval);
+                    continue;
+                }
+
+                var waitForAction = _actionQueue
+                    .WaitToReadAsync(stoppingToken)
+                    .AsTask();
+
+                var waitForProbe = Task.Delay(
+                    nextProbeAt - now,
+                    stoppingToken);
+
+                await Task.WhenAny(waitForAction, waitForProbe);
             }
-
-            if (!response.Success || response.ScreenInfo is null)
-            {
-                throw new InvalidOperationException(
-                    response.Error ?? "Session Agent screen.info request failed.");
-            }
-
-            if (response.ScreenInfo.Monitors.Count == 0
-                || response.ScreenInfo.Monitors.Any(monitor => monitor.Width <= 0 || monitor.Height <= 0))
-            {
-                throw new InvalidDataException("Session Agent returned invalid monitor geometry.");
-            }
-
-            lastScreenInfo = response.ScreenInfo;
-            _statusStore.Save(new SessionAgentStatusSnapshot(
-                StatusSchemaVersion,
-                Connected: true,
-                Authenticated: true,
-                ProcessId: actualProcessId,
-                SessionId: actualSessionId,
-                UserName: authenticatedUser,
-                ConnectedAtUtc: connectedAtUtc,
-                LastSeenUtc: DateTimeOffset.UtcNow,
-                ScreenInfo: lastScreenInfo,
-                LastError: null));
-
-            await Task.Delay(ProbeInterval, stoppingToken);
+        }
+        finally
+        {
+            _actionQueue.SetConnected(false);
         }
 
         _statusStore.Save(new SessionAgentStatusSnapshot(
@@ -237,6 +259,102 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             LastSeenUtc: DateTimeOffset.UtcNow,
             ScreenInfo: lastScreenInfo,
             LastError: "Session Agent disconnected."));
+    }
+
+    private async Task<ScreenInfoSnapshot?> ExecutePendingActionAsync(
+        PendingSessionAction pending,
+        StreamReader reader,
+        StreamWriter writer,
+        ScreenInfoSnapshot? lastScreenInfo,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!string.Equals(pending.Action, "screen.info", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Session Agent transport does not support action '{pending.Action}'.");
+            }
+
+            var screenInfo = await ExecuteScreenInfoRequestAsync(
+                pending.QueueId,
+                reader,
+                writer,
+                cancellationToken);
+
+            var data = JsonSerializer.SerializeToElement(
+                screenInfo,
+                ActionProtocol.JsonOptions);
+
+            _actionQueue.Complete(pending, data);
+            return screenInfo;
+        }
+        catch (Exception ex)
+        {
+            _actionQueue.Fail(pending, ex);
+            return lastScreenInfo;
+        }
+    }
+
+    private static async Task<ScreenInfoSnapshot> ExecuteScreenInfoRequestAsync(
+        string requestId,
+        StreamReader reader,
+        StreamWriter writer,
+        CancellationToken cancellationToken)
+    {
+        var request = new SessionRequest(
+            Type: "request",
+            RequestId: requestId,
+            Action: "screen.info");
+
+        await writer.WriteLineAsync(SessionProtocol.Serialize(request));
+
+        var responseLine = await ReadLineWithTimeoutAsync(
+            reader,
+            RequestTimeout,
+            cancellationToken);
+
+        var response = SessionProtocol.Deserialize<SessionResponse>(responseLine);
+
+        if (!string.Equals(response.Type, "response", StringComparison.Ordinal)
+            || !string.Equals(response.RequestId, request.RequestId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Session Agent response correlation failed.");
+        }
+
+        if (!response.Success || response.ScreenInfo is null)
+        {
+            throw new InvalidOperationException(
+                response.Error ?? "Session Agent screen.info request failed.");
+        }
+
+        if (response.ScreenInfo.Monitors.Count == 0
+            || response.ScreenInfo.Monitors.Any(monitor => monitor.Width <= 0 || monitor.Height <= 0))
+        {
+            throw new InvalidDataException("Session Agent returned invalid monitor geometry.");
+        }
+
+        return response.ScreenInfo;
+    }
+
+    private void WriteConnectedStatus(
+        int processId,
+        int sessionId,
+        string userName,
+        DateTimeOffset connectedAtUtc,
+        ScreenInfoSnapshot? screenInfo)
+    {
+        _statusStore.Save(new SessionAgentStatusSnapshot(
+            StatusSchemaVersion,
+            Connected: true,
+            Authenticated: true,
+            ProcessId: processId,
+            SessionId: sessionId,
+            UserName: userName,
+            ConnectedAtUtc: connectedAtUtc,
+            LastSeenUtc: DateTimeOffset.UtcNow,
+            ScreenInfo: screenInfo,
+            LastError: null));
     }
 
     private static NamedPipeServerStream CreateServerPipe()
