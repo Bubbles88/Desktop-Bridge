@@ -1,0 +1,38 @@
+name: phase-6-control-center
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-owner-control-e2e:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build Core Service
+        run: dotnet build src/ErGe.Core.Service/ErGe.Core.Service.csproj --configuration Release
+
+      - name: Build Owner Control Client
+        run: dotnet build src/ErGe.OwnerControl.Client/ErGe.OwnerControl.Client.csproj --configuration Release
+
+      - name: Build Owner Control CLI
+        run: dotnet build src/ErGe.OwnerControl.Cli/ErGe.OwnerControl.Cli.csproj --configuration Release
+
+      - name: Build native Control Center
+        run: dotnet build src/ErGe.ControlCenter/ErGe.ControlCenter.csproj --configuration Release
+
+      - name: Run owner-control end-to-end path
+        shell: pwsh
+        run: ./scripts/phase6-owner-control-e2e.ps1
