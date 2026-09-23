@@ -1,8 +1,5 @@
 using System.IO.Pipes;
-using System.Runtime.InteropServices;
 using System.Security;
-using System.Security.AccessControl;
-using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using ErGe.Core.Actions;
@@ -11,14 +8,12 @@ using ErGe.Core.Runtime;
 using ErGe.Core.Security;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Win32.SafeHandles;
 
 namespace ErGe.Core.Service;
 
 public sealed class SessionAgentPipeWorker : BackgroundService
 {
     private const int StatusSchemaVersion = 1;
-    private const uint InvalidSessionId = 0xFFFFFFFF;
     private static readonly TimeSpan HandshakeTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(2);
@@ -47,7 +42,8 @@ public sealed class SessionAgentPipeWorker : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            await using var pipe = CreateServerPipe();
+            await using var pipe = NamedPipeOwnerAuthenticator.CreateOwnerPipe(
+                SessionProtocol.PipeName);
 
             try
             {
@@ -85,37 +81,9 @@ public sealed class SessionAgentPipeWorker : BackgroundService
         NamedPipeServerStream pipe,
         CancellationToken stoppingToken)
     {
-        var actualProcessId = GetClientProcessId(pipe.SafePipeHandle);
-        var actualSessionId = GetClientSessionId(pipe.SafePipeHandle);
-        var activeSessionId = WTSGetActiveConsoleSessionId();
-
-        if (activeSessionId == InvalidSessionId)
-        {
-            throw new SecurityException("No active console session exists.");
-        }
-
-        if (actualSessionId != activeSessionId)
-        {
-            throw new SecurityException(
-                $"Session Agent is in session {actualSessionId}; active console session is {activeSessionId}.");
-        }
-
-        var authenticatedUser = pipe.GetImpersonationUserName();
-        if (string.IsNullOrWhiteSpace(authenticatedUser))
-        {
-            throw new SecurityException("Windows did not provide an authenticated pipe client identity.");
-        }
-
-        var authenticatedSid = ((NTAccount)new NTAccount(authenticatedUser))
-            .Translate(typeof(SecurityIdentifier)) as SecurityIdentifier
-            ?? throw new SecurityException("Unable to resolve authenticated pipe client SID.");
-
-        var owner = _ownerStore.LoadRequired();
-        if (!string.Equals(authenticatedSid.Value, owner.UserSid, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new SecurityException(
-                $"Session Agent SID {authenticatedSid.Value} is not the configured device owner SID.");
-        }
+        var authenticated = NamedPipeOwnerAuthenticator.AuthenticateOwner(
+            pipe,
+            _ownerStore);
 
         using var reader = new StreamReader(
             pipe,
@@ -151,12 +119,12 @@ public sealed class SessionAgentPipeWorker : BackgroundService
                 $"Unsupported Session Agent protocol version {hello.ProtocolVersion}.");
         }
 
-        if (hello.ProcessId != actualProcessId)
+        if (hello.ProcessId != authenticated.ProcessId)
         {
             throw new SecurityException("Session Agent process identity mismatch.");
         }
 
-        if (hello.SessionId != actualSessionId)
+        if (hello.SessionId != authenticated.SessionId)
         {
             throw new SecurityException("Session Agent Windows session identity mismatch.");
         }
@@ -166,18 +134,21 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             throw new SecurityException("Session Agent user name is missing.");
         }
 
-        if (!string.Equals(hello.UserName, authenticatedUser, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(
+                hello.UserName,
+                authenticated.UserName,
+                StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogDebug(
                 "Session Agent reported user {ReportedUser}; Windows authenticated pipe user is {AuthenticatedUser}. SID authentication remains authoritative.",
                 hello.UserName,
-                authenticatedUser);
+                authenticated.UserName);
         }
 
         var handshake = new SessionHandshake(
             Type: "handshake",
             Accepted: true,
-            UserName: authenticatedUser,
+            UserName: authenticated.UserName,
             Error: null);
 
         await writer.WriteLineAsync(SessionProtocol.Serialize(handshake));
@@ -203,9 +174,7 @@ public sealed class SessionAgentPipeWorker : BackgroundService
                         stoppingToken);
 
                     WriteConnectedStatus(
-                        actualProcessId,
-                        actualSessionId,
-                        authenticatedUser,
+                        authenticated,
                         connectedAtUtc,
                         lastScreenInfo);
 
@@ -222,9 +191,7 @@ public sealed class SessionAgentPipeWorker : BackgroundService
                         stoppingToken);
 
                     WriteConnectedStatus(
-                        actualProcessId,
-                        actualSessionId,
-                        authenticatedUser,
+                        authenticated,
                         connectedAtUtc,
                         lastScreenInfo);
 
@@ -252,9 +219,9 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             StatusSchemaVersion,
             Connected: false,
             Authenticated: true,
-            ProcessId: actualProcessId,
-            SessionId: actualSessionId,
-            UserName: authenticatedUser,
+            ProcessId: authenticated.ProcessId,
+            SessionId: authenticated.SessionId,
+            UserName: authenticated.UserName,
             ConnectedAtUtc: connectedAtUtc,
             LastSeenUtc: DateTimeOffset.UtcNow,
             ScreenInfo: lastScreenInfo,
@@ -338,9 +305,7 @@ public sealed class SessionAgentPipeWorker : BackgroundService
     }
 
     private void WriteConnectedStatus(
-        int processId,
-        int sessionId,
-        string userName,
+        AuthenticatedPipeClient authenticated,
         DateTimeOffset connectedAtUtc,
         ScreenInfoSnapshot? screenInfo)
     {
@@ -348,59 +313,13 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             StatusSchemaVersion,
             Connected: true,
             Authenticated: true,
-            ProcessId: processId,
-            SessionId: sessionId,
-            UserName: userName,
+            ProcessId: authenticated.ProcessId,
+            SessionId: authenticated.SessionId,
+            UserName: authenticated.UserName,
             ConnectedAtUtc: connectedAtUtc,
             LastSeenUtc: DateTimeOffset.UtcNow,
             ScreenInfo: screenInfo,
             LastError: null));
-    }
-
-    private static NamedPipeServerStream CreateServerPipe()
-    {
-        var security = new PipeSecurity();
-
-        var networkSid = new SecurityIdentifier(WellKnownSidType.NetworkSid, null);
-        var localServiceSid = new SecurityIdentifier(WellKnownSidType.LocalServiceSid, null);
-        var localSystemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
-        var administratorsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
-        var usersSid = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
-
-        security.AddAccessRule(new PipeAccessRule(
-            networkSid,
-            PipeAccessRights.FullControl,
-            AccessControlType.Deny));
-
-        security.AddAccessRule(new PipeAccessRule(
-            localServiceSid,
-            PipeAccessRights.FullControl,
-            AccessControlType.Allow));
-
-        security.AddAccessRule(new PipeAccessRule(
-            localSystemSid,
-            PipeAccessRights.FullControl,
-            AccessControlType.Allow));
-
-        security.AddAccessRule(new PipeAccessRule(
-            administratorsSid,
-            PipeAccessRights.FullControl,
-            AccessControlType.Allow));
-
-        security.AddAccessRule(new PipeAccessRule(
-            usersSid,
-            PipeAccessRights.ReadWrite,
-            AccessControlType.Allow));
-
-        return NamedPipeServerStreamAcl.Create(
-            SessionProtocol.PipeName,
-            PipeDirection.InOut,
-            maxNumberOfServerInstances: 1,
-            PipeTransmissionMode.Byte,
-            PipeOptions.Asynchronous | PipeOptions.WriteThrough,
-            inBufferSize: 4096,
-            outBufferSize: 4096,
-            security);
     }
 
     private static async Task<string> ReadLineWithTimeoutAsync(
@@ -418,30 +337,9 @@ public sealed class SessionAgentPipeWorker : BackgroundService
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new TimeoutException($"Named pipe response exceeded {timeout.TotalSeconds:g} seconds.");
+            throw new TimeoutException(
+                $"Named pipe response exceeded {timeout.TotalSeconds:g} seconds.");
         }
-    }
-
-    private static int GetClientProcessId(SafePipeHandle handle)
-    {
-        if (!GetNamedPipeClientProcessId(handle, out var processId))
-        {
-            throw new InvalidOperationException(
-                $"GetNamedPipeClientProcessId failed with Win32 error {Marshal.GetLastWin32Error()}.");
-        }
-
-        return checked((int)processId);
-    }
-
-    private static int GetClientSessionId(SafePipeHandle handle)
-    {
-        if (!GetNamedPipeClientSessionId(handle, out var sessionId))
-        {
-            throw new InvalidOperationException(
-                $"GetNamedPipeClientSessionId failed with Win32 error {Marshal.GetLastWin32Error()}.");
-        }
-
-        return checked((int)sessionId);
     }
 
     private void WriteDisconnectedStatus(string? error)
@@ -458,19 +356,4 @@ public sealed class SessionAgentPipeWorker : BackgroundService
             ScreenInfo: null,
             LastError: error));
     }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetNamedPipeClientProcessId(
-        SafePipeHandle Pipe,
-        out uint ClientProcessId);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetNamedPipeClientSessionId(
-        SafePipeHandle Pipe,
-        out uint ClientSessionId);
-
-    [DllImport("kernel32.dll")]
-    private static extern uint WTSGetActiveConsoleSessionId();
 }
