@@ -48,6 +48,7 @@ builder.Services.AddSingleton<CapabilityBroker>();
 
 builder.Services.AddHostedService<CoreWorker>();
 builder.Services.AddHostedService<SessionAgentPipeWorker>();
+builder.Services.AddHostedService<LocalProviderPipeWorker>();
 
 var host = builder.Build();
 await host.RunAsync();
