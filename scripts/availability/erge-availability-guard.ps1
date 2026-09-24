@@ -13,6 +13,8 @@ $BaselinePath = Join-Path $DataRoot 'availability-baseline.json'
 $StatePath = Join-Path $DataRoot 'availability-state.json'
 $RuntimeStatusPath = Join-Path $env:ProgramData 'ErGe\runtime-status.json'
 $PolicyPath = Join-Path $env:ProgramData 'ErGe\policy.json'
+$AsusUserPath = 'HKCU:\Software\ASUS\OLEDCare'
+$AsusMachinePath = 'HKLM:\SOFTWARE\ASUS\OLEDCare'
 
 $PowerSettings = @(
     [pscustomobject]@{ Name='SleepAfter'; Subgroup='238c9fa8-0aad-41ed-83f4-97be242c8f20'; Setting='29f6c1db-86da-48c5-9fdb-f2b67b1f44da' },
@@ -74,9 +76,9 @@ function Capture-Scheme {
 function New-Baseline {
     $scheme = Get-ActiveSchemeGuid
     $desktop = 'HKCU:\Control Panel\Desktop'
-    $asus = 'HKCU:\Software\ASUS\OLEDCare'
+    $asus = $AsusUserPath
     return [pscustomobject]@{
-        SchemaVersion = 1
+        SchemaVersion = 2
         CapturedAtUtc = [DateTimeOffset]::UtcNow
         PowerSchemes = @(Capture-Scheme -Scheme $scheme)
         WindowsScreenSaver = [pscustomobject]@{
@@ -91,12 +93,33 @@ function New-Baseline {
             EnablePixelShift = Get-RegistryValueSnapshot -Path $asus -Name 'EnablePixelShift'
             EnablePixelRefresh = Get-RegistryValueSnapshot -Path $asus -Name 'EnablePixelRefresh'
         }
+        AsusMachineOledCare = [pscustomobject]@{
+            KeyExists = (Test-Path $AsusMachinePath)
+            ScreenSaverTime = Get-RegistryValueSnapshot -Path $AsusMachinePath -Name 'ScreenSaverTime'
+            ScreenSaverImage = Get-RegistryValueSnapshot -Path $AsusMachinePath -Name 'ScreenSaverImage'
+            EnablePixelShift = Get-RegistryValueSnapshot -Path $AsusMachinePath -Name 'EnablePixelShift'
+            EnablePixelRefresh = Get-RegistryValueSnapshot -Path $AsusMachinePath -Name 'EnablePixelRefresh'
+        }
     }
 }
 
 function Load-Baseline {
     if (-not (Test-Path $BaselinePath)) { throw "Availability baseline is missing: $BaselinePath" }
-    return Get-Content -Raw -LiteralPath $BaselinePath | ConvertFrom-Json
+    $baseline = Get-Content -Raw -LiteralPath $BaselinePath | ConvertFrom-Json
+    if ([int]$baseline.SchemaVersion -eq 1) {
+        $machineSnapshot = [pscustomobject]@{
+            KeyExists = (Test-Path $AsusMachinePath)
+            ScreenSaverTime = Get-RegistryValueSnapshot -Path $AsusMachinePath -Name 'ScreenSaverTime'
+            ScreenSaverImage = Get-RegistryValueSnapshot -Path $AsusMachinePath -Name 'ScreenSaverImage'
+            EnablePixelShift = Get-RegistryValueSnapshot -Path $AsusMachinePath -Name 'EnablePixelShift'
+            EnablePixelRefresh = Get-RegistryValueSnapshot -Path $AsusMachinePath -Name 'EnablePixelRefresh'
+        }
+        $baseline | Add-Member -NotePropertyName AsusMachineOledCare -NotePropertyValue $machineSnapshot -Force
+        $baseline.SchemaVersion = 2
+        Save-JsonAtomic -Path $BaselinePath -Value $baseline
+    }
+    if ([int]$baseline.SchemaVersion -ne 2) { throw "Unsupported availability baseline schema: $($baseline.SchemaVersion)" }
+    return $baseline
 }
 
 function Ensure-ActiveSchemeBaseline {
@@ -138,10 +161,14 @@ function Apply-AlwaysOn {
     New-Item -Path $desktop -Force | Out-Null
     Set-ItemProperty -Path $desktop -Name 'ScreenSaveActive' -Value '0' -Type String
     Set-ItemProperty -Path $desktop -Name 'ScreenSaveTimeOut' -Value '0' -Type String
-    $asus = 'HKCU:\Software\ASUS\OLEDCare'
+    $asus = $AsusUserPath
     if (Test-Path $asus) {
         Set-ItemProperty -Path $asus -Name 'ScreenSaverTime' -Value 0 -Type DWord
         Set-ItemProperty -Path $asus -Name 'ScreenSaverImage' -Value '' -Type String
+    }
+    if ($Baseline.AsusMachineOledCare.KeyExists -and (Test-Path $AsusMachinePath)) {
+        Set-ItemProperty -Path $AsusMachinePath -Name 'ScreenSaverTime' -Value 0 -Type DWord
+        Set-ItemProperty -Path $AsusMachinePath -Name 'ScreenSaverImage' -Value '' -Type String
     }
     return $Baseline
 }
@@ -163,10 +190,14 @@ function Restore-Baseline {
     Set-RegistrySnapshot -Path $desktop -Name 'ScreenSaveActive' -Snapshot $Baseline.WindowsScreenSaver.ScreenSaveActive
     Set-RegistrySnapshot -Path $desktop -Name 'ScreenSaveTimeOut' -Snapshot $Baseline.WindowsScreenSaver.ScreenSaveTimeOut
     Set-RegistrySnapshot -Path $desktop -Name 'SCRNSAVE.EXE' -Snapshot $Baseline.WindowsScreenSaver.ScrnSaveExe
-    $asus = 'HKCU:\Software\ASUS\OLEDCare'
+    $asus = $AsusUserPath
     if ($Baseline.AsusOledCare.KeyExists) {
         Set-RegistrySnapshot -Path $asus -Name 'ScreenSaverTime' -Snapshot $Baseline.AsusOledCare.ScreenSaverTime
         Set-RegistrySnapshot -Path $asus -Name 'ScreenSaverImage' -Snapshot $Baseline.AsusOledCare.ScreenSaverImage
+    }
+    if ($Baseline.AsusMachineOledCare.KeyExists) {
+        Set-RegistrySnapshot -Path $AsusMachinePath -Name 'ScreenSaverTime' -Snapshot $Baseline.AsusMachineOledCare.ScreenSaverTime
+        Set-RegistrySnapshot -Path $AsusMachinePath -Name 'ScreenSaverImage' -Snapshot $Baseline.AsusMachineOledCare.ScreenSaverImage
     }
 }
 
@@ -256,7 +287,11 @@ New-Item -ItemType Directory -Force -Path $DataRoot | Out-Null
 
 if ($SelfTest) { Invoke-SelfTest; exit 0 }
 if ($CaptureBaseline) {
-    if (-not (Test-Path $BaselinePath)) { Save-JsonAtomic -Path $BaselinePath -Value (New-Baseline) }
+    if (-not (Test-Path $BaselinePath)) {
+        Save-JsonAtomic -Path $BaselinePath -Value (New-Baseline)
+    } else {
+        [void](Load-Baseline)
+    }
     Write-Output "ERGE_PHASE8_BASELINE_OK $BaselinePath"
     exit 0
 }
