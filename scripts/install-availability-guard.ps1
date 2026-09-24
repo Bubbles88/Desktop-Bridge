@@ -20,6 +20,17 @@ $InstallRoot = Join-Path $env:ProgramData 'ErGe\Availability'
 $InstalledGuard = Join-Path $InstallRoot 'erge-availability-guard.ps1'
 
 if (-not (Test-Path $SourceGuard)) { throw "Guard source is missing: $SourceGuard" }
+$existingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($existingTask) {
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $deadline = (Get-Date).AddSeconds(10)
+    do {
+        $current = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+        if (-not $current -or $current.State -ne 'Running') { break }
+        Start-Sleep -Milliseconds 250
+    } while ((Get-Date) -lt $deadline)
+    if ($current -and $current.State -eq 'Running') { throw 'Existing availability guard did not stop before upgrade.' }
+}
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 Copy-Item -LiteralPath $SourceGuard -Destination $InstalledGuard -Force
 & $InstalledGuard -CaptureBaseline
