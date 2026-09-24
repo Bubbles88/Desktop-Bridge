@@ -6,7 +6,7 @@ Native Windows remote AI runtime with owner controlled Always On and Always Off 
 
 Phase 9: remote provider boundary and legacy ErGe bridge migration.
 
-Phases 1 through 7 are implemented. Phase 7 is target verified on Jonathan G14 with the installed Core service and authenticated Session Agent.
+Phases 1 through 8 are implemented. Phases 7 and 8 are target verified on Jonathan G14 with the installed Core service, authenticated Session Agent, and bounded Windows availability guard.
 
 Implemented:
 
