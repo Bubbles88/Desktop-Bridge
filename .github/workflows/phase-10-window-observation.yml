@@ -39,6 +39,9 @@ jobs:
       - name: Build Owner Control CLI
         run: dotnet build src/ErGe.OwnerControl.Cli/ErGe.OwnerControl.Cli.csproj --configuration Release
 
+      - name: Build Action Broker self test
+        run: dotnet build src/ErGe.ActionBroker.SelfTest/ErGe.ActionBroker.SelfTest.csproj --configuration Release
+
       - name: Run Action Broker self test
         run: dotnet run --no-build --project src/ErGe.ActionBroker.SelfTest/ErGe.ActionBroker.SelfTest.csproj --configuration Release
 
