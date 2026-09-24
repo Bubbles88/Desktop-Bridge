@@ -47,9 +47,9 @@ See `docs/PHASE_7.md`.
 
 Phase 8 adds a narrow privileged Windows availability guard.
 
-It changes only AC sleep, AC hibernate, AC display timeout, AC lid action, Windows user screen saver and ASUS per user OLED screen saver settings when owner policy allows remote access.
+It changes only AC sleep, AC hibernate, AC display timeout, AC lid action, and the Windows user screen saver when owner policy allows remote access.
 
-It does not alter battery settings, ASUS Pixel Shift or ASUS Pixel Refresh.
+It does not alter battery settings or any ASUS OLED Care setting. The ASUS screen saver, Pixel Shift, and Pixel Refresh remain OEM managed panel protection.
 
 Before changing a setting it captures a restorable baseline. See `docs/PHASE_8.md`.
 
