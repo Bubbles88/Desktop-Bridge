@@ -6,13 +6,18 @@ using System.Text.Json;
 using ErGe.Core.Ipc;
 
 var probeScreen = args.Contains("--probe-screen", StringComparer.OrdinalIgnoreCase);
-var action = probeScreen ? "screen.info" : ReadOption(args, "--action");
+var probeWindows = args.Contains("--probe-windows", StringComparer.OrdinalIgnoreCase);
+var action = probeScreen
+    ? "screen.info"
+    : probeWindows
+        ? "windows.list"
+        : ReadOption(args, "--action");
 var argumentsJson = ReadOption(args, "--arguments-json") ?? "{}";
 
 if (string.IsNullOrWhiteSpace(action))
 {
     Console.Error.WriteLine(
-        "Usage: ErGe.RemoteProvider.Cli --probe-screen | --action <name> [--arguments-json <json>]");
+        "Usage: ErGe.RemoteProvider.Cli --probe-screen | --probe-windows | --action <name> [--arguments-json <json>]");
     return 2;
 }
 
@@ -118,6 +123,10 @@ if (!response.Success)
 if (probeScreen)
 {
     Console.WriteLine("ERGE_REMOTE_PROVIDER_SCREEN_INFO_OK");
+}
+else if (probeWindows)
+{
+    Console.WriteLine("ERGE_REMOTE_PROVIDER_WINDOWS_LIST_OK");
 }
 
 return 0;
