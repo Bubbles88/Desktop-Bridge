@@ -5,9 +5,32 @@ using System.Text;
 using System.Text.Json;
 using ErGe.Core.Ipc;
 
-if (!args.Contains("--probe-screen", StringComparer.OrdinalIgnoreCase))
+var probeScreen = args.Contains("--probe-screen", StringComparer.OrdinalIgnoreCase);
+var probeWindows = args.Contains("--probe-windows", StringComparer.OrdinalIgnoreCase);
+var action = probeScreen
+    ? "screen.info"
+    : probeWindows
+        ? "windows.list"
+        : ReadOption(args, "--action");
+var argumentsJson = ReadOption(args, "--arguments-json") ?? "{}";
+
+if (string.IsNullOrWhiteSpace(action))
 {
-    Console.Error.WriteLine("Usage: ErGe.LocalProvider.Cli --probe-screen");
+    Console.Error.WriteLine(
+        "Usage: ErGe.LocalProvider.Cli --probe-screen | --probe-windows | --action <name> [--arguments-json <json>]");
+    return 2;
+}
+
+JsonElement arguments;
+
+try
+{
+    using var document = JsonDocument.Parse(argumentsJson);
+    arguments = document.RootElement.Clone();
+}
+catch (JsonException ex)
+{
+    Console.Error.WriteLine($"arguments_json_invalid: {ex.Message}");
     return 2;
 }
 
@@ -18,7 +41,7 @@ await using var pipe = new NamedPipeClientStream(
     PipeOptions.Asynchronous,
     TokenImpersonationLevel.Identification);
 
-using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 await pipe.ConnectAsync(5000, timeout.Token);
 
 using var reader = new StreamReader(
@@ -69,8 +92,8 @@ var requestId = Guid.NewGuid().ToString("N");
 var request = new LocalProviderActionRequest(
     Type: "action",
     RequestId: requestId,
-    Action: "screen.info",
-    Arguments: JsonSerializer.SerializeToElement(new { }));
+    Action: action,
+    Arguments: arguments);
 
 await writer.WriteLineAsync(LocalProviderProtocol.Serialize(request));
 
@@ -97,8 +120,36 @@ if (!response.Success)
     return 1;
 }
 
-Console.WriteLine("ERGE_LOCAL_PROVIDER_SCREEN_INFO_OK");
+if (probeScreen)
+{
+    Console.WriteLine("ERGE_LOCAL_PROVIDER_SCREEN_INFO_OK");
+}
+else if (probeWindows)
+{
+    Console.WriteLine("ERGE_LOCAL_PROVIDER_WINDOWS_LIST_OK");
+}
+
 return 0;
+
+static string? ReadOption(string[] arguments, string name)
+{
+    for (var index = 0; index < arguments.Length; index++)
+    {
+        if (!string.Equals(arguments[index], name, StringComparison.OrdinalIgnoreCase))
+        {
+            continue;
+        }
+
+        if (index + 1 >= arguments.Length)
+        {
+            return null;
+        }
+
+        return arguments[index + 1];
+    }
+
+    return null;
+}
 
 static async Task<string> ReadLineWithTimeoutAsync(
     StreamReader reader,
