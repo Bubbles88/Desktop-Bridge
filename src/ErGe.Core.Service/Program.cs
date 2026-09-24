@@ -49,6 +49,7 @@ builder.Services.AddSingleton<CapabilityBroker>();
 builder.Services.AddHostedService<CoreWorker>();
 builder.Services.AddHostedService<SessionAgentPipeWorker>();
 builder.Services.AddHostedService<LocalProviderPipeWorker>();
+builder.Services.AddHostedService<RemoteProviderPipeWorker>();
 builder.Services.AddHostedService<OwnerControlPipeWorker>();
 
 var host = builder.Build();
