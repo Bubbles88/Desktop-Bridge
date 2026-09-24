@@ -1,0 +1,21 @@
+name: phase-8-availability-hardening
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  phase-8:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse and self-test availability guard
+        shell: pwsh
+        run: ./scripts/phase8-availability-hardening-e2e.ps1
