@@ -12,6 +12,9 @@ namespace ErGe.SessionAgent;
 
 internal static class Program
 {
+    private const int MaxWindowRows = 512;
+    private const int MaxTitleFilterLength = 512;
+
     [Flags]
     private enum ExecutionState : uint
     {
@@ -34,6 +37,14 @@ internal static class Program
             var screenInfo = GetScreenInfo();
             Console.WriteLine(SessionProtocol.Serialize(screenInfo));
             Console.WriteLine("ERGE_SESSION_SCREEN_PROBE_OK");
+            return 0;
+        }
+
+        if (args.Contains("--probe-windows", StringComparer.OrdinalIgnoreCase))
+        {
+            var windowList = GetWindowList(titleFilter: null, visibleOnly: true);
+            Console.WriteLine(SessionProtocol.Serialize(windowList));
+            Console.WriteLine("ERGE_SESSION_WINDOWS_PROBE_OK");
             return 0;
         }
 
@@ -201,6 +212,32 @@ internal static class Program
             }
         }
 
+        if (string.Equals(request.Action, "windows.list", StringComparison.Ordinal))
+        {
+            try
+            {
+                var (titleFilter, visibleOnly) = ReadWindowListArguments(request.Arguments);
+                var windowList = GetWindowList(titleFilter, visibleOnly);
+
+                return new SessionResponse(
+                    Type: "response",
+                    RequestId: request.RequestId,
+                    Success: true,
+                    ScreenInfo: null,
+                    Error: null,
+                    WindowList: windowList);
+            }
+            catch (Exception ex)
+            {
+                return new SessionResponse(
+                    Type: "response",
+                    RequestId: request.RequestId,
+                    Success: false,
+                    ScreenInfo: null,
+                    Error: $"{ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
         if (string.Equals(request.Action, "availability.set", StringComparison.Ordinal))
         {
             try
@@ -233,6 +270,175 @@ internal static class Program
             Success: false,
             ScreenInfo: null,
             Error: $"Unsupported action: {request.Action}");
+    }
+
+    private static (string? TitleFilter, bool VisibleOnly) ReadWindowListArguments(
+        JsonElement? arguments)
+    {
+        if (arguments is null || arguments.Value.ValueKind == JsonValueKind.Undefined)
+        {
+            return (null, true);
+        }
+
+        if (arguments.Value.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException(
+                "windows.list arguments must be a JSON object.");
+        }
+
+        string? titleFilter = null;
+        var visibleOnly = true;
+
+        foreach (var property in arguments.Value.EnumerateObject())
+        {
+            switch (property.Name)
+            {
+                case "titleFilter":
+                    if (property.Value.ValueKind == JsonValueKind.Null)
+                    {
+                        titleFilter = null;
+                    }
+                    else if (property.Value.ValueKind == JsonValueKind.String)
+                    {
+                        titleFilter = property.Value.GetString();
+                        if (titleFilter is not null
+                            && titleFilter.Length > MaxTitleFilterLength)
+                        {
+                            throw new InvalidDataException(
+                                $"windows.list titleFilter exceeds {MaxTitleFilterLength} characters.");
+                        }
+                    }
+                    else
+                    {
+                        throw new InvalidDataException(
+                            "windows.list titleFilter must be a string or null.");
+                    }
+                    break;
+
+                case "visibleOnly":
+                    if (property.Value.ValueKind is not
+                        (JsonValueKind.True or JsonValueKind.False))
+                    {
+                        throw new InvalidDataException(
+                            "windows.list visibleOnly must be boolean.");
+                    }
+
+                    visibleOnly = property.Value.GetBoolean();
+                    break;
+
+                default:
+                    throw new InvalidDataException(
+                        $"windows.list does not accept property '{property.Name}'.");
+            }
+        }
+
+        return (titleFilter, visibleOnly);
+    }
+
+    private static WindowListSnapshot GetWindowList(
+        string? titleFilter,
+        bool visibleOnly)
+    {
+        var rows = new List<WindowSnapshot>();
+        var filter = string.IsNullOrEmpty(titleFilter) ? null : titleFilter;
+        var hitLimit = false;
+
+        NativeMethods.EnumWindowsProc callback = (hwnd, _) =>
+        {
+            try
+            {
+                var visible = NativeMethods.IsWindowVisible(hwnd);
+                if (visibleOnly && !visible)
+                {
+                    return true;
+                }
+
+                var title = GetWindowText(hwnd);
+                if (visibleOnly && string.IsNullOrEmpty(title))
+                {
+                    return true;
+                }
+
+                if (filter is not null
+                    && title.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return true;
+                }
+
+                if (rows.Count >= MaxWindowRows)
+                {
+                    hitLimit = true;
+                    return false;
+                }
+
+                if (!NativeMethods.GetWindowRect(hwnd, out var rect))
+                {
+                    return true;
+                }
+
+                NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+
+                rows.Add(new WindowSnapshot(
+                    Hwnd: hwnd.ToInt64(),
+                    Title: title,
+                    ClassName: GetWindowClassName(hwnd),
+                    Pid: checked((int)pid),
+                    Visible: visible,
+                    Minimized: NativeMethods.IsIconic(hwnd),
+                    Maximized: NativeMethods.IsZoomed(hwnd),
+                    Rect: new WindowRectSnapshot(
+                        Left: rect.Left,
+                        Top: rect.Top,
+                        Right: rect.Right,
+                        Bottom: rect.Bottom,
+                        Width: rect.Right - rect.Left,
+                        Height: rect.Bottom - rect.Top)));
+            }
+            catch
+            {
+                // A window can disappear during enumeration. Skip malformed or
+                // transient records rather than taking down the Session Agent.
+            }
+
+            return true;
+        };
+
+        var completed = NativeMethods.EnumWindows(callback, IntPtr.Zero);
+        GC.KeepAlive(callback);
+
+        if (!completed && !hitLimit)
+        {
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                "EnumWindows failed.");
+        }
+
+        var ordered = rows
+            .OrderBy(window => window.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(window => window.Hwnd)
+            .ToArray();
+
+        return new WindowListSnapshot(ordered, ordered.Length);
+    }
+
+    private static string GetWindowText(IntPtr hwnd)
+    {
+        var length = NativeMethods.GetWindowTextLengthW(hwnd);
+        if (length <= 0)
+        {
+            return string.Empty;
+        }
+
+        var buffer = new StringBuilder(length + 1);
+        _ = NativeMethods.GetWindowTextW(hwnd, buffer, buffer.Capacity);
+        return buffer.ToString();
+    }
+
+    private static string GetWindowClassName(IntPtr hwnd)
+    {
+        var buffer = new StringBuilder(256);
+        _ = NativeMethods.GetClassNameW(hwnd, buffer, buffer.Capacity);
+        return buffer.ToString();
     }
 
     private static bool ReadKeepAwakeArgument(JsonElement? arguments)
@@ -318,4 +524,62 @@ internal static class Program
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern ExecutionState SetThreadExecutionState(
         ExecutionState esFlags);
+
+    private static class NativeMethods
+    {
+        internal delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Rect
+        {
+            internal int Left;
+            internal int Top;
+            internal int Right;
+            internal int Bottom;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool EnumWindows(
+            EnumWindowsProc callback,
+            IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool IsWindowVisible(IntPtr hwnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetWindowTextLengthW(IntPtr hwnd);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetWindowTextW(
+            IntPtr hwnd,
+            StringBuilder text,
+            int maxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern int GetClassNameW(
+            IntPtr hwnd,
+            StringBuilder className,
+            int maxCount);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetWindowRect(
+            IntPtr hwnd,
+            out Rect rect);
+
+        [DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(
+            IntPtr hwnd,
+            out uint processId);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool IsIconic(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool IsZoomed(IntPtr hwnd);
+    }
 }
