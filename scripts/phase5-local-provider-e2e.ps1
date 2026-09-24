@@ -4,7 +4,8 @@ param([string]$Configuration = 'Release')
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Root = Join-Path $env:RUNNER_TEMP ('erge-phase5-' + [guid]::NewGuid().ToString('N'))
+$TempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } elseif ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
+$Root = Join-Path $TempRoot ('erge-phase5-' + [guid]::NewGuid().ToString('N'))
 $PolicyPath = Join-Path $Root 'policy.json'
 $StatusPath = Join-Path $Root 'runtime-status.json'
 $SessionStatusPath = Join-Path $Root 'session-agent-status.json'
