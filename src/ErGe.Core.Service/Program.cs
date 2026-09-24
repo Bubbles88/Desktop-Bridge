@@ -44,6 +44,7 @@ builder.Services.AddSingleton<SessionAgentActionQueue>();
 builder.Services.AddSingleton<IInteractiveCapabilityExecutor>(
     services => services.GetRequiredService<SessionAgentActionQueue>());
 builder.Services.AddSingleton<ICapabilityHandler, ScreenInfoCapabilityHandler>();
+builder.Services.AddSingleton<ICapabilityHandler, WindowListCapabilityHandler>();
 builder.Services.AddSingleton<CapabilityBroker>();
 
 builder.Services.AddHostedService<CoreWorker>();

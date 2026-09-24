@@ -4,9 +4,9 @@ Native Windows remote AI runtime with owner controlled Always On and Always Off 
 
 ## Current phase
 
-Phase 9: remote provider boundary and legacy ErGe bridge migration.
+Phase 10: read only window observation migration.
 
-Phases 1 through 8 are implemented. Phases 7 and 8 are target verified on Jonathan G14 with the installed Core service, authenticated Session Agent, and bounded Windows availability guard.
+Phases 1 through 9 are implemented. Phases 7 through 9 are target verified on Jonathan G14 with the installed Core service, authenticated Session Agent, bounded Windows availability guard, and the first Core brokered remote capability.
 
 Implemented:
 
@@ -82,3 +82,18 @@ Phase 9 adds a dedicated remote provider boundary so the existing ErGe PC Bridge
 Remote ChatGPT traffic must use the Remote Provider pipe. LocalOnly therefore denies remote traffic while still allowing the Local Provider path.
 
 The first migrated capability is `screen.info`. See `docs/PHASE_9.md`.
+
+
+## Phase 9 live target result
+
+`screen.info` is now enforced through Desktop Bridge Core on Jonathan G14.
+
+Shadow parity matched the legacy 2880 x 1800 geometry. LocalOnly, EmergencyBlock, and AlwaysOff correctly denied remote access, while LocalOnly preserved the Local Provider path. The bridge remained reachable through the same ChatGPT session.
+
+See `docs/PHASE_9.md`.
+
+## Phase 10
+
+Phase 10 migrates `windows.list` as the next read only interactive capability.
+
+It adds no window mutation authority. See `docs/PHASE_10.md`.

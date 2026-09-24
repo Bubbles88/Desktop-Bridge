@@ -1,0 +1,53 @@
+name: phase-10-window-observation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-e2e:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build Core
+        run: dotnet build src/ErGe.Core/ErGe.Core.csproj --configuration Release
+
+      - name: Build Core Service
+        run: dotnet build src/ErGe.Core.Service/ErGe.Core.Service.csproj --configuration Release
+
+      - name: Build Session Agent
+        run: dotnet build src/ErGe.SessionAgent/ErGe.SessionAgent.csproj --configuration Release
+
+      - name: Build Remote Provider CLI
+        run: dotnet build src/ErGe.RemoteProvider.Cli/ErGe.RemoteProvider.Cli.csproj --configuration Release
+
+      - name: Build Local Provider CLI
+        run: dotnet build src/ErGe.LocalProvider.Cli/ErGe.LocalProvider.Cli.csproj --configuration Release
+
+      - name: Build Owner Control CLI
+        run: dotnet build src/ErGe.OwnerControl.Cli/ErGe.OwnerControl.Cli.csproj --configuration Release
+
+      - name: Build Action Broker self test
+        run: dotnet build src/ErGe.ActionBroker.SelfTest/ErGe.ActionBroker.SelfTest.csproj --configuration Release
+
+      - name: Run Action Broker self test
+        run: dotnet run --no-build --project src/ErGe.ActionBroker.SelfTest/ErGe.ActionBroker.SelfTest.csproj --configuration Release
+
+      - name: Probe Session Agent window enumeration
+        run: dotnet run --no-build --project src/ErGe.SessionAgent/ErGe.SessionAgent.csproj --configuration Release -- --probe-windows
+
+      - name: Run Phase 10 end to end policy path
+        shell: pwsh
+        run: ./scripts/phase10-window-observation-e2e.ps1

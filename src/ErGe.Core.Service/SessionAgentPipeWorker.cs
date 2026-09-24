@@ -305,24 +305,41 @@ public sealed class SessionAgentPipeWorker : BackgroundService
     {
         try
         {
-            if (!string.Equals(pending.Action, "screen.info", StringComparison.Ordinal))
+            if (string.Equals(pending.Action, "screen.info", StringComparison.Ordinal))
             {
-                throw new InvalidOperationException(
-                    $"Session Agent transport does not support action '{pending.Action}'.");
+                var screenInfo = await ExecuteScreenInfoRequestAsync(
+                    pending.QueueId,
+                    reader,
+                    writer,
+                    cancellationToken);
+
+                var data = JsonSerializer.SerializeToElement(
+                    screenInfo,
+                    ActionProtocol.JsonOptions);
+
+                _actionQueue.Complete(pending, data);
+                return screenInfo;
             }
 
-            var screenInfo = await ExecuteScreenInfoRequestAsync(
-                pending.QueueId,
-                reader,
-                writer,
-                cancellationToken);
+            if (string.Equals(pending.Action, "windows.list", StringComparison.Ordinal))
+            {
+                var windowList = await ExecuteWindowListRequestAsync(
+                    pending.QueueId,
+                    pending.Arguments,
+                    reader,
+                    writer,
+                    cancellationToken);
 
-            var data = JsonSerializer.SerializeToElement(
-                screenInfo,
-                ActionProtocol.JsonOptions);
+                var data = JsonSerializer.SerializeToElement(
+                    windowList,
+                    ActionProtocol.JsonOptions);
 
-            _actionQueue.Complete(pending, data);
-            return screenInfo;
+                _actionQueue.Complete(pending, data);
+                return lastScreenInfo;
+            }
+
+            throw new InvalidOperationException(
+                $"Session Agent transport does not support action '{pending.Action}'.");
         }
         catch (Exception ex)
         {
@@ -370,6 +387,51 @@ public sealed class SessionAgentPipeWorker : BackgroundService
         }
 
         return response.ScreenInfo;
+    }
+
+    private static async Task<WindowListSnapshot> ExecuteWindowListRequestAsync(
+        string requestId,
+        JsonElement arguments,
+        StreamReader reader,
+        StreamWriter writer,
+        CancellationToken cancellationToken)
+    {
+        var request = new SessionRequest(
+            Type: "request",
+            RequestId: requestId,
+            Action: "windows.list",
+            Arguments: arguments);
+
+        await writer.WriteLineAsync(SessionProtocol.Serialize(request));
+
+        var responseLine = await ReadLineWithTimeoutAsync(
+            reader,
+            RequestTimeout,
+            cancellationToken);
+
+        var response = SessionProtocol.Deserialize<SessionResponse>(responseLine);
+
+        if (!string.Equals(response.Type, "response", StringComparison.Ordinal)
+            || !string.Equals(response.RequestId, request.RequestId, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Session Agent windows.list response correlation failed.");
+        }
+
+        if (!response.Success || response.WindowList is null)
+        {
+            throw new InvalidOperationException(
+                response.Error ?? "Session Agent windows.list request failed.");
+        }
+
+        if (response.WindowList.Count != response.WindowList.Windows.Count
+            || response.WindowList.Count > 512)
+        {
+            throw new InvalidDataException(
+                "Session Agent returned invalid window inventory bounds.");
+        }
+
+        return response.WindowList;
     }
 
     private void WriteConnectedStatus(

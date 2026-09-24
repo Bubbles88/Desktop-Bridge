@@ -45,7 +45,8 @@ public sealed record SessionResponse(
     bool Success,
     ScreenInfoSnapshot? ScreenInfo,
     string? Error,
-    AvailabilityInfoSnapshot? Availability = null);
+    AvailabilityInfoSnapshot? Availability = null,
+    WindowListSnapshot? WindowList = null);
 
 public sealed record ScreenInfoSnapshot(
     IReadOnlyList<ScreenMonitorSnapshot> Monitors);
@@ -60,3 +61,25 @@ public sealed record ScreenMonitorSnapshot(
 
 public sealed record AvailabilityInfoSnapshot(
     bool KeepAwake);
+
+public sealed record WindowListSnapshot(
+    IReadOnlyList<WindowSnapshot> Windows,
+    int Count);
+
+public sealed record WindowSnapshot(
+    long Hwnd,
+    string Title,
+    string ClassName,
+    int Pid,
+    bool Visible,
+    bool Minimized,
+    bool Maximized,
+    WindowRectSnapshot Rect);
+
+public sealed record WindowRectSnapshot(
+    int Left,
+    int Top,
+    int Right,
+    int Bottom,
+    int Width,
+    int Height);
