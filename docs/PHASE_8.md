@@ -23,19 +23,16 @@ When effective remote access is allowed, Phase 8 enforces only:
 3. AC display timeout = Never.
 4. AC lid close action = Do nothing.
 5. Windows user screen saver disabled.
-6. ASUS per user OLED screen saver timeout disabled.
-7. ASUS per user OLED screen saver image cleared.
-8. ASUS machine level OLED screen saver timeout disabled while AlwaysOn.
-9. ASUS machine level OLED screen saver image cleared while AlwaysOn.
-10. Drift correction every 60 seconds while the owner is logged in.
+6. Drift correction every 60 seconds while the owner is logged in.
+7. ASUS OLED Care settings are monitored as read only evidence and never written by ErGe.
 
 Battery power settings are not changed.
 
-ASUS Pixel Shift and Pixel Refresh are explicitly not changed.
+ASUS screen saver, Pixel Shift, and Pixel Refresh settings are explicitly not changed. The OEM OLED screen saver is treated as a panel protection feature, not an availability defect.
 
 ## State backup and restoration
 
-Before the first Phase 8 mutation, the installer records the active Windows power scheme, exact AC values for sleep, hibernate, display and lid action, Windows screen saver values, ASUS per user screen saver values, ASUS machine level screen saver values, and Pixel Shift and Pixel Refresh values as protected evidence. Existing schema 1 baselines migrate in place to schema 2 without recapturing already preserved user settings.
+Before the first Phase 8 mutation, the installer records the active Windows power scheme, exact AC values for sleep, hibernate, display and lid action, Windows screen saver values, and ASUS per user plus machine level OLED Care values as protected evidence. Existing schema 1 baselines migrate in place to schema 2 without recapturing already preserved user settings. ASUS evidence is never used as a mutation target.
 
 If Armoury Crate or another component changes the active power scheme while ErGe is enforcing availability, the guard captures that scheme's original AC values before applying any change.
 
@@ -72,11 +69,11 @@ Phase 8 is target verified only after Jonathan G14 proves:
 5. AlwaysOff yields `RestoreBaseline`.
 6. AC sleep, hibernate, display and lid settings match the enforced contract while AlwaysOn.
 7. Battery settings remain unchanged.
-8. Windows, ASUS user, and ASUS machine screen saver drift is corrected.
-9. AlwaysOff restores the captured ASUS machine screen saver baseline.
+8. Windows screen saver drift is corrected.
+9. ASUS user and machine OLED Care values remain unchanged across AlwaysOn and AlwaysOff transitions.
 10. Pixel Shift remains enabled if it was enabled before installation.
 11. Pixel Refresh remains enabled if it was enabled before installation.
-12. Uninstall or AlwaysOff can restore captured baseline.
+12. Uninstall or AlwaysOff restores the Windows and power baseline managed by ErGe.
 13. Existing ErGe PC Bridge remains reachable throughout.
 
 ## Next phase
@@ -85,4 +82,4 @@ After Phase 8 target verification, Phase 9 implements the legacy ErGe adapter bo
 
 ## ASUS G14 observation
 
-Live G14 testing showed that Armoury Crate can normalize or remove per user OLEDCare overrides after restoration even though machine level OLED protection remains enabled. Phase 8 therefore treats the machine level ASUS OLEDCare screen saver values as part of the reversible enforcement boundary. Pixel Shift and Pixel Refresh remain evidence only and are never modified by the guard.
+Live G14 testing showed that Armoury Crate can normalize adjacent OLEDCare values when its screen saver registry values are written. That makes the ASUS registry unsafe as an ErGe control surface. The test was rolled back to the original recorded values. Phase 8 therefore treats both user and machine ASUS OLEDCare state as read only evidence. Availability is provided by Windows power policy and SetThreadExecutionState, while the OEM OLED screen saver, Pixel Shift, and Pixel Refresh remain available to protect the panel.
