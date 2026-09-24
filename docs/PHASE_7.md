@@ -1,19 +1,17 @@
 # Phase 7 Acceptance Contract
 
-Phase 7 begins the machine availability subsystem.
+Phase 7 establishes the machine availability channel.
 
 ## Fundamental question
 
 Can local owner policy keep the Windows machine operational for ErGe without requiring the Control Center to remain open and without giving provider actions authority over Windows power behavior?
 
-## Scope
+## Implemented
 
-Phase 7 implements two foundations only:
-
-1. Current-user Session Agent autostart.
-2. Policy-driven system keep-awake through SetThreadExecutionState.
-
-It does not yet rewrite screen saver, lid-close, hibernate, ASUS Armoury Crate, or global power-plan configuration.
+1. Current user Session Agent autostart.
+2. Policy driven system keep awake through SetThreadExecutionState.
+3. Authenticated Session Agent reconnection after Core restart.
+4. Owner policy transitions over the dedicated Owner Control pipe.
 
 ## Architecture
 
@@ -23,42 +21,40 @@ The availability.set command is internal system control. It is not registered in
 
 ## Policy mapping
 
-Remote AI allowed means keep awake requested.
-
 Always On => keep awake true.
-
 Always Off => keep awake false.
-
 Connect Now => keep awake true while the temporary override is active.
-
 Local Only => keep awake false.
-
 Emergency Block => keep awake false.
 
-## Autostart
+## Jonathan G14 live verification
 
-The Session Agent installer publishes under LocalAppData\ErGe\SessionAgent and registers ErGeSessionAgent under the current user's Windows Run key.
+Target verification completed on 24 September 2026.
 
-The Core service remains independent of the Control Center. Closing the Control Center does not remove Core or Session Agent availability.
+The canonical Session Agent was installed under LocalAppData and registered as `ErGeSessionAgent` in the current user Run key.
 
-## CI gate
+The installed ErGeCore service was upgraded in place to the canonical build while preserving the service identity, ProgramData state, automatic startup and Local Service account.
 
-Phase 7 verifies:
+After the Core restart, the existing Session Agent automatically reconnected and authenticated in Windows session 1 without restarting the Session Agent.
 
-1. Session Agent availability probe can set and clear the Windows execution state.
-2. Session Agent autostart can be installed, verified, and removed.
-3. Always On produces KeepAwakeApplied=true.
-4. Always Off produces KeepAwakeApplied=false.
-5. Connect Now temporarily produces KeepAwakeApplied=true.
-6. Emergency Block produces KeepAwakeApplied=false.
-7. Clear Override returns to the persistent Always Off keep-awake state.
+Live owner policy acceptance results:
 
-Expected marker: ERGE_PHASE7_AVAILABILITY_E2E_OK.
+1. AlwaysOn -> remote allowed -> KeepAwakeApplied=true.
+2. AlwaysOff -> remote denied -> KeepAwakeApplied=false.
+3. ConnectNow -> remote allowed -> KeepAwakeApplied=true.
+4. EmergencyBlock -> remote denied -> KeepAwakeApplied=false.
+5. Clear Override -> persistent AlwaysOff -> KeepAwakeApplied=false.
 
-## Target-machine exit gate
+The Session Agent reported the real primary desktop at 2880 x 1800.
 
-On Jonathan G14, Phase 7 must prove the installed Session Agent starts after logon without opening the Control Center, keep-awake survives normal idle periods while Always On is effective, Always Off clears the execution-state request, and Core continues running independently.
+The standalone E2E harness was corrected so temporary paths work both inside GitHub Actions and on ordinary Windows machines.
+
+## Verification boundary
+
+Phase 7 source, CI, installed Core, installed Session Agent, owner controls, authentication, reconnection and live keep awake behavior are verified.
+
+A full Windows reboot remains a later persistence gate for the complete Desktop Bridge stack.
 
 ## Next phase
 
-Phase 8 will harden Windows availability around this proven channel: screen saver, sleep/hibernate, lid behavior, ASUS/OLED conflicts, state backup/restoration, and drift correction.
+Phase 8 hardens Windows availability around this proven channel: screen saver, AC sleep and hibernate, AC display timeout, AC lid behavior, ASUS OLED conflicts, state backup and restoration, and drift correction.
