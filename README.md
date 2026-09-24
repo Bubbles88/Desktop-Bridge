@@ -4,7 +4,7 @@ Native Windows remote AI runtime with owner controlled Always On and Always Off 
 
 ## Current phase
 
-Phase 8: Windows availability hardening and drift correction.
+Phase 9: remote provider boundary and legacy ErGe bridge migration.
 
 Phases 1 through 7 are implemented. Phase 7 is target verified on Jonathan G14 with the installed Core service and authenticated Session Agent.
 
@@ -22,6 +22,8 @@ Implemented:
 * Current user Session Agent autostart
 * Policy driven keep awake
 * Phase 8 privileged availability guard with baseline restoration and drift correction
+* Dedicated Remote Provider named pipe with Core assigned remote origin
+* Generic Remote Provider CLI migration adapter
 * Fail closed behavior for invalid configuration
 * Atomic policy and state persistence
 
@@ -72,3 +74,11 @@ Phase 8:
 ```powershell
 ./scripts/phase8-availability-hardening-e2e.ps1
 ```
+
+## Phase 9
+
+Phase 9 adds a dedicated remote provider boundary so the existing ErGe PC Bridge can migrate behind Core policy without being misclassified as local AI.
+
+Remote ChatGPT traffic must use the Remote Provider pipe. LocalOnly therefore denies remote traffic while still allowing the Local Provider path.
+
+The first migrated capability is `screen.info`. See `docs/PHASE_9.md`.
