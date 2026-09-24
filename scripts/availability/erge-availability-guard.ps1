@@ -161,15 +161,8 @@ function Apply-AlwaysOn {
     New-Item -Path $desktop -Force | Out-Null
     Set-ItemProperty -Path $desktop -Name 'ScreenSaveActive' -Value '0' -Type String
     Set-ItemProperty -Path $desktop -Name 'ScreenSaveTimeOut' -Value '0' -Type String
-    $asus = $AsusUserPath
-    if (Test-Path $asus) {
-        Set-ItemProperty -Path $asus -Name 'ScreenSaverTime' -Value 0 -Type DWord
-        Set-ItemProperty -Path $asus -Name 'ScreenSaverImage' -Value '' -Type String
-    }
-    if ($Baseline.AsusMachineOledCare.KeyExists -and (Test-Path $AsusMachinePath)) {
-        Set-ItemProperty -Path $AsusMachinePath -Name 'ScreenSaverTime' -Value 0 -Type DWord
-        Set-ItemProperty -Path $AsusMachinePath -Name 'ScreenSaverImage' -Value '' -Type String
-    }
+    # ASUS OLED care is intentionally read-only evidence. The OEM screen saver,
+    # Pixel Shift, and Pixel Refresh protect the panel and are not ErGe controls.
     return $Baseline
 }
 
@@ -190,15 +183,7 @@ function Restore-Baseline {
     Set-RegistrySnapshot -Path $desktop -Name 'ScreenSaveActive' -Snapshot $Baseline.WindowsScreenSaver.ScreenSaveActive
     Set-RegistrySnapshot -Path $desktop -Name 'ScreenSaveTimeOut' -Snapshot $Baseline.WindowsScreenSaver.ScreenSaveTimeOut
     Set-RegistrySnapshot -Path $desktop -Name 'SCRNSAVE.EXE' -Snapshot $Baseline.WindowsScreenSaver.ScrnSaveExe
-    $asus = $AsusUserPath
-    if ($Baseline.AsusOledCare.KeyExists) {
-        Set-RegistrySnapshot -Path $asus -Name 'ScreenSaverTime' -Snapshot $Baseline.AsusOledCare.ScreenSaverTime
-        Set-RegistrySnapshot -Path $asus -Name 'ScreenSaverImage' -Snapshot $Baseline.AsusOledCare.ScreenSaverImage
-    }
-    if ($Baseline.AsusMachineOledCare.KeyExists) {
-        Set-RegistrySnapshot -Path $AsusMachinePath -Name 'ScreenSaverTime' -Snapshot $Baseline.AsusMachineOledCare.ScreenSaverTime
-        Set-RegistrySnapshot -Path $AsusMachinePath -Name 'ScreenSaverImage' -Snapshot $Baseline.AsusMachineOledCare.ScreenSaverImage
-    }
+    # ASUS OLED care remains outside the mutation boundary on restore as well.
 }
 
 function Resolve-DesiredMode {
