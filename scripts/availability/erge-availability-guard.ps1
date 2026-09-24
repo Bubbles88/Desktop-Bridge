@@ -149,6 +149,8 @@ function Apply-AlwaysOn {
 function Restore-Baseline {
     param($Baseline)
     foreach ($schemeBaseline in @($Baseline.PowerSchemes)) {
+        $schemePath = "HKLM:\SYSTEM\CurrentControlSet\Control\Power\User\PowerSchemes\$($schemeBaseline.SchemeGuid)"
+        if (-not (Test-Path $schemePath)) { continue }
         foreach ($settingBaseline in @($schemeBaseline.Settings)) {
             if ($null -ne $settingBaseline.AcIndex) {
                 Set-PowerIndex -Scheme $schemeBaseline.SchemeGuid -Subgroup $settingBaseline.Subgroup -Setting $settingBaseline.Setting -Value ([int64]$settingBaseline.AcIndex)
