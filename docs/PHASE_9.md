@@ -167,3 +167,26 @@ Phase 9 is complete only when:
 ## Next phase
 
 After the first remote capability is brokered end to end, the next phase expands Core capability coverage in risk ordered groups before retiring corresponding direct legacy execution paths.
+
+
+## Jonathan G14 live verification
+
+Target verification completed on 24 September 2026.
+
+The live production bridge remained connected while the Desktop Bridge Remote Provider path was exercised.
+
+Verified results:
+
+1. The Remote Provider CLI is installed for Jonathan.
+2. The authenticated Session Agent remained connected to Core.
+3. Shadow mode returned the existing legacy result and recorded `geometry_match=true` for the real 2880 x 1800 primary display.
+4. `screen.info` in enforce mode succeeded under AlwaysOn.
+5. LocalOnly denied remote `screen.info` with `policy_denied`.
+6. LocalOnly still allowed the Local Provider path to return the real 2880 x 1800 monitor.
+7. EmergencyBlock denied both RemoteProvider and LocalProvider.
+8. AlwaysOff denied remote `screen.info`.
+9. Returning to AlwaysOn restored remote `screen.info` successfully.
+10. `bridge_status` remained reachable throughout the policy denial tests.
+11. The live ErGe PC Bridge now reports Desktop Bridge migration mode `enforce` for the migrated `screen.info` capability.
+
+Phase 9 is therefore target verified for `screen.info`. Non migrated capabilities remain on their legacy paths.
