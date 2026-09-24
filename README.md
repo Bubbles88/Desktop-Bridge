@@ -1,60 +1,74 @@
 # Desktop Bridge
 
-Native Windows remote AI runtime with owner-controlled Always On / Always Off access.
+Native Windows remote AI runtime with owner controlled Always On and Always Off access.
 
 ## Current phase
 
-Phase 5 source development: owner-authenticated local provider ingress on top of the Phase 4 Action Protocol and Capability Broker.
+Phase 8: Windows availability hardening and drift correction.
 
-Phase 1 and Phase 2 are complete. Phase 3 source and CI are complete, while its final Jonathan G14 target-machine verification record remains open.
+Phases 1 through 7 are implemented. Phase 7 is target verified on Jonathan G14 with the installed Core service and authenticated Session Agent.
 
 Implemented:
 
-- Provider-neutral Action Protocol v1
-- Capability Broker with local policy authorization
-- Registered `screen.info` capability only
-- Bounded Core-to-Session-Agent action queue
-- Authenticated Session Agent IPC remains the only interactive desktop boundary
-- Persistent `AlwaysOn` / `AlwaysOff` policy
-- Temporary `ConnectNow`, `LocalOnly`, and `EmergencyBlock` overrides
-- Local-owner-only policy mutation
-- Fail-closed behavior for invalid configuration
-- Atomic policy persistence
-- Dependency-free self-test
+* Provider neutral Action Protocol v1
+* Capability Broker with local policy authorization
+* Registered `screen.info` capability
+* Bounded Core to Session Agent action queue
+* Authenticated Session Agent IPC as the interactive desktop boundary
+* Persistent `AlwaysOn` and `AlwaysOff` policy
+* Temporary `ConnectNow`, `LocalOnly` and `EmergencyBlock` overrides
+* Local owner only policy mutation
+* Native WPF Owner Control Center
+* Current user Session Agent autostart
+* Policy driven keep awake
+* Phase 8 privileged availability guard with baseline restoration and drift correction
+* Fail closed behavior for invalid configuration
+* Atomic policy and state persistence
 
-The existing Yusen / ErGe PC bridge remains the working production and migration path. This repository is the replacement architecture and must not destabilize the existing bridge.
+The existing ErGe PC Bridge remains the working production and construction path. Desktop Bridge is the replacement architecture and must not destabilize the existing bridge.
 
-## Phase 1 self-test
+## Phase 7 live target result
+
+On Jonathan G14, the canonical Session Agent is installed and authenticated to the installed ErGeCore service.
+
+Verified owner policy behavior:
+
+```text
+AlwaysOn       -> KeepAwakeApplied=true
+AlwaysOff      -> KeepAwakeApplied=false
+ConnectNow     -> KeepAwakeApplied=true
+EmergencyBlock -> KeepAwakeApplied=false
+ClearOverride  -> KeepAwakeApplied=false
+```
+
+See `docs/PHASE_7.md`.
+
+## Phase 8
+
+Phase 8 adds a narrow privileged Windows availability guard.
+
+It changes only AC sleep, AC hibernate, AC display timeout, AC lid action, Windows user screen saver and ASUS per user OLED screen saver settings when owner policy allows remote access.
+
+It does not alter battery settings, ASUS Pixel Shift or ASUS Pixel Refresh.
+
+Before changing a setting it captures a restorable baseline. See `docs/PHASE_8.md`.
+
+## Self tests
+
+Phase 1:
 
 ```powershell
 dotnet run --project src/ErGe.Policy.SelfTest/ErGe.Policy.SelfTest.csproj
 ```
 
-Expected final line:
-
-```text
-ERGE_POLICY_SELFTEST_OK
-```
-
-
-## Phase 4 self-test
+Phase 4:
 
 ```powershell
 dotnet run --project src/ErGe.ActionBroker.SelfTest/ErGe.ActionBroker.SelfTest.csproj --configuration Release
 ```
 
-Expected final line:
+Phase 8:
 
-```text
-ERGE_ACTION_BROKER_SELFTEST_OK
+```powershell
+./scripts/phase8-availability-hardening-e2e.ps1
 ```
-
-Phase 4 intentionally adds no Relay and no external ChatGPT provider ingress yet.
-
-## Phase 5 provider probe
-
-The first provider client is local-only and owner-authenticated:
-
-dotnet run --project src/ErGe.LocalProvider.Cli/ErGe.LocalProvider.Cli.csproj --configuration Release -- --probe-screen
-
-A successful end-to-end provider path prints ERGE_LOCAL_PROVIDER_SCREEN_INFO_OK.
