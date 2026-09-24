@@ -192,17 +192,24 @@ function Get-DesiredState {
     if (Test-Path $PolicyPath) {
         try { $policy = Get-Content -Raw -LiteralPath $PolicyPath | ConvertFrom-Json } catch { $policy = $null }
     }
+    $persistentMode = 'AlwaysOff'
+    if ($null -ne $policy) { $persistentMode = $policy.PersistentMode }
+    $effectiveAccess = $null
+    if ($runtimeFresh) { $effectiveAccess = $runtime.EffectiveAccess }
+    $mode = Resolve-DesiredMode -RuntimeStatus $runtime -RuntimeFresh $runtimeFresh -PersistentPolicy $policy
     return [pscustomobject]@{
-        Mode = Resolve-DesiredMode -RuntimeStatus $runtime -RuntimeFresh $runtimeFresh -PersistentPolicy $policy
+        Mode = $mode
         RuntimeFresh = $runtimeFresh
         RuntimeAgeSeconds = $runtimeAge
-        PersistentMode = if ($null -ne $policy) { $policy.PersistentMode } else { 'AlwaysOff' }
-        EffectiveAccess = if ($runtimeFresh) { $runtime.EffectiveAccess } else { $null }
+        PersistentMode = $persistentMode
+        EffectiveAccess = $effectiveAccess
     }
 }
 
 function Write-State {
     param([string]$Mode,$Desired,[string]$Outcome,[string]$ErrorMessage)
+    $activePowerScheme = $null
+    try { $activePowerScheme = Get-ActiveSchemeGuid } catch { }
     $state = [pscustomobject]@{
         SchemaVersion = 1
         UpdatedAtUtc = [DateTimeOffset]::UtcNow
@@ -212,7 +219,7 @@ function Write-State {
         RuntimeAgeSeconds = $Desired.RuntimeAgeSeconds
         PersistentMode = $Desired.PersistentMode
         EffectiveAccess = $Desired.EffectiveAccess
-        ActivePowerScheme = try { Get-ActiveSchemeGuid } catch { $null }
+        ActivePowerScheme = $activePowerScheme
         Error = $ErrorMessage
     }
     Save-JsonAtomic -Path $StatePath -Value $state
