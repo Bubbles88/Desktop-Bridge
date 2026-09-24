@@ -83,3 +83,27 @@ After Phase 8 target verification, Phase 9 implements the legacy ErGe adapter bo
 ## ASUS G14 observation
 
 Live G14 testing showed that Armoury Crate can normalize adjacent OLEDCare values when its screen saver registry values are written. That makes the ASUS registry unsafe as an ErGe control surface. The test was rolled back to the original recorded values. Phase 8 therefore treats both user and machine ASUS OLEDCare state as read only evidence. Availability is provided by Windows power policy and SetThreadExecutionState, while the OEM OLED screen saver, Pixel Shift, and Pixel Refresh remain available to protect the panel.
+
+
+## Jonathan G14 live verification result
+
+Target verification completed on 24 September 2026.
+
+Observed on the installed G14 stack:
+
+1. The canonical Phase 8 guard source hash matched the installed guard hash.
+2. The guard task ran under Jonathan at highest task privilege and remained supervised.
+3. AlwaysOn converged to EnforceAlwaysOn and Session Agent KeepAwakeApplied=true.
+4. Deliberately injected AC sleep and Windows screen saver drift was corrected on the guard cycle.
+5. Battery power values did not change.
+6. AlwaysOff converged to RestoreBaseline and KeepAwakeApplied=false.
+7. AC sleep, hibernate, display and lid values returned to the captured baseline.
+8. Windows ScreenSaveActive, ScreenSaveTimeOut and SCRNSAVE.EXE exactly matched the captured baseline after restoration.
+9. ASUS user and machine OLEDCare values remained unchanged across the final safety test.
+10. Pixel Shift remained enabled.
+11. Pixel Refresh remained enabled.
+12. The existing ErGe PC Bridge remained reachable throughout the transitions.
+
+Phase 8 is therefore LIVE_TARGET_VERIFIED on Jonathan G14 for its bounded Windows availability scope.
+
+A full Windows reboot remains a separate complete stack persistence gate and is not implied by this target verification.
