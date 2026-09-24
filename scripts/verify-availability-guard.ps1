@@ -16,6 +16,6 @@ if ($task.Principal.RunLevel -ne 'Highest') { throw 'Availability guard is not c
 $state = Get-Content -Raw -LiteralPath $StatePath | ConvertFrom-Json
 if ($state.Outcome -ne 'Applied') { throw "Availability guard state is not Applied. Outcome: $($state.Outcome). Error: $($state.Error)" }
 $baseline = Get-Content -Raw -LiteralPath $BaselinePath | ConvertFrom-Json
-if ($baseline.SchemaVersion -ne 1) { throw "Unsupported availability baseline schema: $($baseline.SchemaVersion)" }
-[pscustomobject]@{ TaskName=$TaskName; TaskState=$task.State; LastRunTime=$info.LastRunTime; LastTaskResult=$info.LastTaskResult; DesiredMode=$state.DesiredMode; Outcome=$state.Outcome; ActivePowerScheme=$state.ActivePowerScheme; BaselineCapturedAtUtc=$baseline.CapturedAtUtc; PixelShiftBaseline=$baseline.AsusOledCare.EnablePixelShift.Value; PixelRefreshBaseline=$baseline.AsusOledCare.EnablePixelRefresh.Value }
+if ($baseline.SchemaVersion -ne 2) { throw "Unsupported availability baseline schema: $($baseline.SchemaVersion)" }
+[pscustomobject]@{ TaskName=$TaskName; TaskState=$task.State; LastRunTime=$info.LastRunTime; LastTaskResult=$info.LastTaskResult; DesiredMode=$state.DesiredMode; Outcome=$state.Outcome; ActivePowerScheme=$state.ActivePowerScheme; BaselineCapturedAtUtc=$baseline.CapturedAtUtc; PixelShiftBaseline=$baseline.AsusOledCare.EnablePixelShift.Value; PixelRefreshBaseline=$baseline.AsusOledCare.EnablePixelRefresh.Value; MachineScreenSaverTimeBaseline=$baseline.AsusMachineOledCare.ScreenSaverTime.Value; MachinePixelShiftBaseline=$baseline.AsusMachineOledCare.EnablePixelShift.Value; MachinePixelRefreshBaseline=$baseline.AsusMachineOledCare.EnablePixelRefresh.Value }
 Write-Output 'ERGE_PHASE8_VERIFY_OK'
